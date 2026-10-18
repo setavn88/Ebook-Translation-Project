@@ -236,7 +236,8 @@ def test_cli_chains_use_preset_models(monkeypatch):
     args = cli.build_parser().parse_args(["dich", "x.epub", "--muc", "tiet-kiem", "--providers", "claude,deepseek"])
     cli._chains(args)
     (t_spec, t_over), (a_spec, a_over) = seen
-    assert t_over == {"claude": "claude-sonnet-5-5"} and a_over == {"claude": "claude-haiku-5-5"}
+    assert t_over["claude"] == t_over["claude-code"] == "claude-sonnet-5-5"
+    assert a_over["claude"] == a_over["claude-code"] == "claude-haiku-5-5"
     assert t_spec == [("claude", None), ("deepseek", None)]
     seen.clear()
     args = cli.build_parser().parse_args(["dich", "x.epub", "--model", "claude-fable-5-1"])

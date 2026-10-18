@@ -20,5 +20,8 @@ booktranslator = "booktranslator.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+booktranslator = ["webui.html"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]

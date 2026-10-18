@@ -186,11 +186,17 @@ def _analysis_schema(genre: GenreProfile) -> dict:
 
 
 def parse_json(text: str):
-    """Đọc JSON từ câu trả lời; chấp nhận cả khi bị bọc trong ```json ... ```."""
+    """Đọc JSON từ câu trả lời; chấp nhận cả khi bị bọc trong ```json``` hoặc có chữ thừa trước/sau."""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise
+        return json.loads(text[start : end + 1])
 
 
 def _str(value) -> str:

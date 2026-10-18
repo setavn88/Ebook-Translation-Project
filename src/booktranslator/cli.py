@@ -55,7 +55,8 @@ def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--providers", default="claude",
         help="Nhà cung cấp API theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
-             "Vd: claude,deepseek hoặc deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
+             "Vd: claude-code (dùng gói Claude Pro/Max, không tốn tiền API), claude,deepseek, "
+             "deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
     )
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
     p.add_argument("--effort", choices=_EFFORTS, help="Mức suy nghĩ của mô hình; mặc định theo thể loại và --muc")
@@ -99,6 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    ui = sub.add_parser("giao-dien", aliases=["ui"], help="Mở giao diện trên trình duyệt (dễ dùng nhất)")
+    ui.set_defaults(cmd="ui")
+    ui.add_argument("--thu-muc", "--workspace", dest="workspace", type=Path, default=Path.home() / "BookTranslator",
+                    help="Thư mục chứa sách và kết quả (mặc định: ~/BookTranslator)")
+    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--no-browser", action="store_true", help="Không tự mở trình duyệt")
 
     sub.add_parser("the-loai", aliases=["genres"], help="Liệt kê thể loại").set_defaults(cmd="genres")
     sub.add_parser("phong-cach", aliases=["styles"], help="Liệt kê phong cách dịch").set_defaults(cmd="styles")
@@ -182,8 +190,10 @@ def _chains(args):
     translate_spec = list(spec)
     if args.model:
         translate_spec[0] = (spec[0][0], args.model)  # --model chỉ áp cho bước dịch
-    llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"]})
-    analysis = build_chain(spec, not args.no_fallback, {"claude": preset["analysis_model"]})
+    llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]})
+    analysis = build_chain(
+        spec, not args.no_fallback, {"claude": preset["analysis_model"], "claude-code": preset["analysis_model"]}
+    )
     if analysis.id == llm.id:
         analysis = llm
     return llm, analysis
@@ -293,6 +303,11 @@ def _run(args, progress) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
+    if args.cmd == "ui":
+        from .webui import serve
+
+        serve(args.workspace, args.port, not args.no_browser)
+        return 0
     if args.cmd == "genres":
         _print_catalog(GENRES.values())
         return 0

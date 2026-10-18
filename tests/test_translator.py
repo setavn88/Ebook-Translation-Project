@@ -168,3 +168,12 @@ def test_analyze_skips_empty_sections():
     t, p = make_translator()
     assert t.analyze_section(Section("c", "Cover", "html", ["<img src='a.png'/>"], "")) is None
     assert p.analysis_calls == []
+
+
+def test_parse_json_tolerates_surrounding_text():
+    from booktranslator.translator import parse_json
+
+    assert parse_json('Đây là kết quả:\n{"a": 1}\nXong.') == {"a": 1}
+    assert parse_json('```json\n{"a": 2}\n```') == {"a": 2}
+    with pytest.raises(ValueError):
+        parse_json("không có json")

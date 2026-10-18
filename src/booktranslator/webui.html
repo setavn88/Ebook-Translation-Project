@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BookTranslator</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --text: #1f2328; --muted: #6a6f76; --line: #e2e0da;
+  --accent: #b4532a; --accent-soft: #f6e6dd; --ok: #2f7d4f; --err: #b3261e; --code: #f1efe9;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #18191b; --panel: #222326; --text: #e8e6e3; --muted: #9a9ea5; --line: #34363a;
+          --accent: #e0875c; --accent-soft: #3a2a22; --ok: #6cc28f; --err: #f2867e; --code: #2a2b2f; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; }
+header .ws { color: var(--muted); font-size: 13px; }
+.layout { display: grid; grid-template-columns: 210px 1fr; min-height: calc(100vh - 56px); }
+nav { border-right: 1px solid var(--line); padding: 12px 8px; background: var(--panel); }
+nav button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 9px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav .step { color: var(--muted); font-size: 12px; margin-right: 6px; }
+main { padding: 20px 24px; max-width: 1100px; }
+section { display: none; } section.active { display: block; }
+h2 { font-size: 20px; margin: 0 0 4px; } .lead { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.card h3 { margin: 0 0 10px; font-size: 15px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.hint { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+select, input[type=text], input[type=password], input[type=number], textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+textarea { min-height: 120px; resize: vertical; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+textarea.big { min-height: 60vh; }
+button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+button.btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.danger { color: var(--err); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.chips label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; margin: 0 14px 6px 0; }
+.badge { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--code); color: var(--muted); }
+.badge.ok { color: var(--ok); } .badge.no { color: var(--err); }
+.drop { border: 2px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; }
+.drop.over { border-color: var(--accent); color: var(--accent); }
+.log { background: var(--code); border-radius: 8px; padding: 10px; height: 260px; overflow: auto; font: 12.5px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+.status { font-weight: 600; } .status.running { color: var(--accent); } .status.done { color: var(--ok); } .status.error, .status.cancelled { color: var(--err); }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; table-layout: fixed; }
+th:last-child, td:last-child { width: 46px; }
+td .btn.danger { padding: 5px 9px; }
+th, td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; }
+td input { padding: 5px 7px; }
+.md h1 { font-size: 19px; } .md h2 { font-size: 17px; margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+.md h3 { font-size: 14px; color: var(--accent); margin-bottom: 4px; } .md p { margin: 0 0 10px; }
+.toast { position: fixed; bottom: 18px; right: 18px; background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; max-width: 420px; }
+.toast.show { opacity: .95; }
+ul.files { margin: 6px 0 0; padding-left: 18px; } ul.files li { margin: 3px 0; }
+a { color: var(--accent); }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  nav button { white-space: nowrap; width: auto; } main { padding: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📖 BookTranslator</h1>
+  <span class="ws">Thư mục làm việc: <code id="ws"></code></span>
+</header>
+<div class="layout">
+<nav id="nav">
+  <button data-tab="book" class="active"><span class="step">1</span>Sách</button>
+  <button data-tab="settings"><span class="step">2</span>Cài đặt dịch</button>
+  <button data-tab="brief"><span class="step">3</span>Hướng dẫn dịch</button>
+  <button data-tab="bible"><span class="step">4</span>Sổ tay tên riêng</button>
+  <button data-tab="run"><span class="step">5</span>Dịch &amp; kết quả</button>
+  <button data-tab="learn"><span class="step">★</span>Học phong cách</button>
+  <button data-tab="keys"><span class="step">⚙</span>Kết nối AI</button>
+</nav>
+<main>
+
+<!-- 1. Sách -->
+<section id="tab-book" class="active">
+  <h2>Chọn sách cần dịch</h2>
+  <p class="lead">Kéo thả file EPUB / TXT / Markdown vào đây. File được lưu trong thư mục làm việc.</p>
+  <div class="card">
+    <div class="drop" id="drop">Kéo thả file sách vào đây, hoặc bấm để chọn file<input type="file" id="fileInput" hidden multiple accept=".epub,.txt,.md,.markdown,.json"></div>
+  </div>
+  <div class="card">
+    <label for="book">Sách sẽ dịch</label>
+    <select id="book"></select>
+    <p class="hint">Sách đã dịch (*.vi.*) và file kết quả không hiện ở đây — xem ở bước 5.</p>
+  </div>
+  <div class="card" id="starterCard">
+    <h3>Bộ khởi đầu Discworld</h3>
+    <p class="hint">Chép file hướng dẫn dịch Discworld và bảng tên riêng đề xuất vào thư mục làm việc, rồi tự chọn sẵn ở bước 2.</p>
+    <button class="btn" id="starterBtn">Cài bộ khởi đầu Discworld</button>
+  </div>
+</section>
+
+<!-- 2. Cài đặt -->
+<section id="tab-settings">
+  <h2>Cài đặt dịch</h2>
+  <p class="lead">Các lựa chọn được nhớ lại cho lần sau.</p>
+  <div class="card grid">
+    <div><label for="genre">Thể loại sách</label><select id="genre"></select><p class="hint" id="genreHint"></p></div>
+    <div><label for="style">Phong cách dịch giả</label><select id="style"></select>
+      <p class="hint">Phong cách tự học (bước ★) hiện ở đây dưới dạng file .json.</p></div>
+    <div><label for="muc">Mức chất lượng / chi phí</label><select id="muc">
+      <option value="tiet-kiem">Tiết kiệm — Sonnet, không biên tập</option>
+      <option value="can-bang" selected>Cân bằng — Opus + biên tập (khuyên dùng)</option>
+      <option value="cao-cap">Cao cấp — Opus, suy nghĩ kỹ nhất</option></select></div>
+    <div><label for="polish">Bước biên tập (nhuận sắc)</label><select id="polish">
+      <option value="auto">Theo mức chất lượng</option><option value="on">Luôn bật</option><option value="off">Tắt (rẻ hơn ~½)</option></select></div>
+  </div>
+  <div class="card">
+    <label>Dùng AI nào (theo thứ tự ưu tiên — hết hạn mức thì tự chuyển sang cái kế tiếp)</label>
+    <div class="chips" id="providers"></div>
+    <p class="hint"><b>Claude Code</b> dùng gói Claude Pro/Max bạn đang đăng nhập — không tốn tiền API. Các mục còn lại cần API key (bước ⚙).</p>
+    <div class="grid" style="margin-top:8px">
+      <div><label for="model">Model (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
+      <div><label for="effort">Mức suy nghĩ (để trống = theo thể loại)</label><select id="effort">
+        <option value="">Mặc định</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
+    </div>
+  </div>
+  <div class="card grid">
+    <div><label for="brief">File hướng dẫn dịch (.md)</label><select id="brief"></select><p class="hint">Sửa nội dung ở bước 3.</p></div>
+    <div><label for="bible">Sổ tay tên riêng</label><input type="text" id="bible" placeholder="discworld.bible.json">
+      <p class="hint">Dùng chung một sổ tay cho cả bộ truyện để tên thống nhất.</p></div>
+    <div><label for="glossary">Bảng tên nạp thêm (.json, tùy chọn)</label><select id="glossary"></select></div>
+  </div>
+  <div class="card"><label for="note">Yêu cầu riêng (tùy chọn, ưu tiên cao nhất)</label>
+    <textarea id="note" placeholder="vd. Rincewind than vãn nhiều hơn nữa; câu đùa ưu tiên chơi chữ tiếng Việt"></textarea></div>
+</section>
+
+<!-- 3. Hướng dẫn dịch -->
+<section id="tab-brief">
+  <h2>Hướng dẫn dịch</h2>
+  <p class="lead">Đây là "prompt" riêng cho cuốn/bộ sách: giọng văn, giọng nhân vật, cách xử lý câu đùa. Sửa tự do bằng tiếng Việt.</p>
+  <div class="card">
+    <div class="row" style="margin-bottom:8px"><span id="briefName" class="badge"></span>
+      <input type="text" id="newBrief" placeholder="hoặc tạo file mới: ten-sach.md" style="max-width:260px">
+      <button class="btn" id="newBriefBtn">Tạo</button>
+      <span style="flex:1"></span><button class="btn primary" id="saveBrief">Lưu</button></div>
+    <textarea id="briefText" class="big" placeholder="Chọn file hướng dẫn ở bước 2, hoặc tạo file mới."></textarea>
+  </div>
+</section>
+
+<!-- 4. Sổ tay -->
+<section id="tab-bible">
+  <h2>Sổ tay tên riêng</h2>
+  <p class="lead">Mỗi tên chỉ có một bản dịch, dùng cho cả cuốn/bộ. Bấm "Lập sổ tay" ở bước 5 để AI đọc sách và điền tự động, rồi sửa lại ở đây.</p>
+  <div class="card">
+    <div class="row" style="margin-bottom:8px"><span id="bibleName" class="badge"></span>
+      <input type="text" id="bibleFilter" placeholder="Lọc tên..." style="max-width:220px">
+      <button class="btn" id="addEntity">+ Thêm tên</button><span style="flex:1"></span>
+      <button class="btn" id="reloadBible">Tải lại</button><button class="btn primary" id="saveBible">Lưu sổ tay</button></div>
+    <div class="tablewrap"><table><thead><tr><th style="width:24%">Tên gốc</th><th style="width:24%">Bản dịch</th><th style="width:14%">Loại</th><th>Ghi chú</th><th></th></tr></thead>
+      <tbody id="entities"></tbody></table></div>
+    <p class="hint" id="bibleInfo"></p>
+  </div>
+  <div class="card"><h3>Xưng hô giữa các nhân vật</h3>
+    <div class="tablewrap"><table><thead><tr><th>Người nói</th><th>Người nghe</th><th>Xưng</th><th>Gọi</th><th>Hoàn cảnh</th><th></th></tr></thead>
+      <tbody id="addressing"></tbody></table></div>
+    <button class="btn" id="addAddr" style="margin-top:8px">+ Thêm cặp xưng hô</button></div>
+</section>
+
+<!-- 5. Chạy -->
+<section id="tab-run">
+  <h2>Dịch &amp; kết quả</h2>
+  <p class="lead">Nên: <b>Dịch thử</b> → đọc, chỉnh hướng dẫn/sổ tay → dịch thử lại → khi ưng thì <b>Dịch cả cuốn</b>. Phần đã dịch thử không tốn lại.</p>
+  <div class="card">
+    <div class="row">
+      <button class="btn primary" data-action="preview">▶ Dịch thử</button>
+      <label style="margin:0">số đoạn <input type="number" id="chunks" value="2" min="1" max="20" style="width:64px"></label>
+      <label style="margin:0">chương số <input type="number" id="section" min="1" placeholder="tự chọn" style="width:90px"></label>
+      <button class="btn" data-action="analyze">📒 Lập sổ tay</button>
+      <button class="btn primary" data-action="translate">📚 Dịch cả cuốn</button>
+      <label style="margin:0;font-weight:500"><input type="checkbox" id="fresh"> dịch lại từ đầu</label>
+      <span style="flex:1"></span><button class="btn danger" id="cancelBtn" disabled>■ Dừng</button>
+    </div>
+    <p style="margin:10px 0 6px">Trạng thái: <span class="status" id="jobStatus">chưa chạy</span></p>
+    <div class="log" id="log"></div>
+    <div id="outputs"></div>
+  </div>
+  <div class="card"><div class="row"><h3 style="margin:0">Bản dịch thử</h3><span class="badge" id="previewName"></span>
+    <span style="flex:1"></span><button class="btn" id="reloadPreview">Tải lại</button></div>
+    <div class="md" id="preview"><p class="hint">Chưa có — bấm "Dịch thử".</p></div></div>
+  <div class="card"><h3>Tất cả file kết quả</h3><ul class="files" id="results"></ul></div>
+</section>
+
+<!-- ★ Học phong cách -->
+<section id="tab-learn">
+  <h2>Học phong cách từ sách tham chiếu</h2>
+  <p class="lead">Ví dụ: đưa vào bản Harry Potter do Lý Lan dịch (và bản tiếng Anh nếu có). AI đọc vài trích đoạn, rút ra giọng văn, cách đặt tên, xưng hô và đoạn mẫu. File kết quả chứa trích đoạn sách của bạn — chỉ dùng cá nhân.</p>
+  <div class="card grid">
+    <div><label for="banDich">Bản dịch tiếng Việt (bắt buộc)</label><select id="banDich"></select></div>
+    <div><label for="banGoc">Bản gốc tiếng Anh (khuyên dùng)</label><select id="banGoc"></select></div>
+    <div><label for="styleName">Tên phong cách</label><input type="text" id="styleName" value="Lý Lan - Harry Potter"></div>
+    <div><label for="styleOut">Lưu thành file</label><input type="text" id="styleOut" value="lylan-hp.json"></div>
+  </div>
+  <div class="row"><button class="btn primary" data-action="learn">★ Học phong cách</button>
+    <span class="hint">Tiến độ hiện ở bước 5. Xong thì chọn file này trong "Phong cách dịch giả".</span></div>
+</section>
+
+<!-- ⚙ Kết nối AI -->
+<section id="tab-keys">
+  <h2>Kết nối AI</h2>
+  <p class="lead">Trạng thái các nhà cung cấp. API key nhập ở đây chỉ giữ trong bộ nhớ đến khi tắt giao diện — muốn lưu lâu dài, đặt biến môi trường (xem README).</p>
+  <div class="card"><table id="provTable"></table></div>
+  <div class="card grid">
+    <div><label for="kClaude">Claude API key (ANTHROPIC_API_KEY)</label><input type="password" id="kClaude" placeholder="sk-ant-..."></div>
+    <div><label for="kDeepseek">DeepSeek API key</label><input type="password" id="kDeepseek" placeholder="sk-..."></div>
+    <div><label for="kOpenai">OpenAI (ChatGPT) API key</label><input type="password" id="kOpenai" placeholder="sk-..."></div>
+  </div>
+  <button class="btn primary" id="saveKeys">Dùng các key này</button>
+  <p class="hint">Claude Code: cài tại claude.com/claude-code, mở Terminal gõ <code>claude</code> rồi đăng nhập một lần. Khi dùng Claude Code, phần mềm cố ý không truyền API key để không bị tính tiền API.</p>
+</section>
+
+</main></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__BT_TOKEN__";
+const $ = (id) => document.getElementById(id);
+const PROVIDERS = [["claude-code", "Claude Code (gói Pro/Max)"], ["claude", "Claude API"], ["deepseek", "DeepSeek"], ["openai", "ChatGPT"]];
+const ENTITY_TYPES = ["character", "place", "organization", "title", "creature", "artifact", "magic", "term"];
+let state = null, bibleData = null, currentJob = null, logNext = 0;
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3500); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "X-BT-Token": TOKEN, ...(opts.headers || {}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---- ghi nhớ lựa chọn --------------------------------------------------
+const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "banDich", "banGoc", "styleName", "styleOut"];
+function saveForm() {
+  const v = Object.fromEntries(PERSIST.map((k) => [k, $(k).value]));
+  v.providers = [...document.querySelectorAll("#providers input:checked")].map((i) => i.value);
+  try { localStorage.setItem("bt-form", JSON.stringify(v)); } catch (e) {}
+}
+function loadForm() {
+  try { return JSON.parse(localStorage.getItem("bt-form") || "{}"); } catch (e) { return {}; }
+}
+
+// ---- tabs ----------------------------------------------------------------
+$("nav").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "brief") loadBrief();
+  if (b.dataset.tab === "bible") loadBible();
+  if (b.dataset.tab === "run") loadPreview();
+});
+
+function fillSelect(sel, items, value, empty) {
+  const el = $(sel), cur = value ?? el.value;
+  el.innerHTML = (empty ? `<option value="">${esc(empty)}</option>` : "") +
+    items.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
+  if ([...el.options].some((o) => o.value === cur)) el.value = cur;
+}
+
+async function refresh(first = false) {
+  state = await api("/api/state");
+  const saved = first ? loadForm() : {};
+  const f = state.files;
+  $("ws").textContent = state.workspace;
+  fillSelect("book", f.books.map((b) => [b, b]), saved.book, f.books.length ? null : "— chưa có sách, hãy tải lên —");
+  fillSelect("genre", state.genres.map((g) => [g.key, g.name]), saved.genre ?? (first ? "comic" : undefined));
+  fillSelect("style", [...state.styles.map((s) => [s.key, s.name]), ...f.jsons.map((j) => ["file:" + j, "📄 " + j])], saved.style ?? (first ? "lylan" : undefined));
+  fillSelect("brief", f.briefs.map((b) => [b, b]), saved.brief, "— không dùng —");
+  fillSelect("glossary", f.jsons.map((j) => [j, j]), saved.glossary, "— không dùng —");
+  fillSelect("banDich", f.books.map((b) => [b, b]), saved.banDich, "— chọn —");
+  fillSelect("banGoc", f.books.map((b) => [b, b]), saved.banGoc, "— không có —");
+  if (first) {
+    for (const k of ["muc", "polish", "model", "effort", "note", "chunks", "section", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    $("bible").value = saved.bible || "discworld.bible.json";
+    const chosen = saved.providers || [state.providers["claude-code"] ? "claude-code" : "claude"];
+    $("providers").innerHTML = PROVIDERS.map(([k, label]) =>
+      `<label><input type="checkbox" value="${k}" ${chosen.includes(k) ? "checked" : ""}> ${esc(label)}
+       <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
+  }
+  $("starterCard").style.display = state.starter_available ? "" : "none";
+  updateGenreHint();
+  renderProviders();
+  $("results").innerHTML = f.results.length ? f.results.map(fileLink).join("") : '<li class="hint">Chưa có.</li>';
+}
+function fileLink(r) {
+  const view = r.endsWith(".md") ? ` · <a href="#" data-view="${esc(r)}">xem</a>` : "";
+  return `<li><a href="/api/download?t=${TOKEN}&path=${encodeURIComponent(r)}">${esc(r)}</a>${view}</li>`;
+}
+function updateGenreHint() {
+  const g = state.genres.find((x) => x.key === $("genre").value);
+  $("genreHint").textContent = g ? `${g.description} (suy nghĩ mặc định: ${g.effort})` : "";
+}
+function renderProviders() {
+  $("provTable").innerHTML = "<tr><th>Nhà cung cấp</th><th>Trạng thái</th></tr>" + PROVIDERS.map(([k, label]) =>
+    `<tr><td>${esc(label)}</td><td><span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></td></tr>`).join("");
+}
+document.addEventListener("change", (e) => { if (e.target.id === "genre") updateGenreHint(); saveForm(); });
+document.addEventListener("input", saveForm);
+
+// ---- tải file lên ----------------------------------------------------------
+async function upload(files) {
+  for (const file of files) {
+    const r = await api("/api/upload?name=" + encodeURIComponent(file.name), { method: "POST", body: file });
+    toast("Đã tải lên: " + r.path);
+    if (/\.(epub|txt|md|markdown)$/i.test(r.path)) { await refresh(); $("book").value = r.path; saveForm(); }
+  }
+  await refresh();
+}
+const drop = $("drop");
+drop.onclick = () => $("fileInput").click();
+$("fileInput").onchange = (e) => upload(e.target.files).catch((err) => toast(err.message));
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files).catch((err) => toast(err.message)); };
+
+$("starterBtn").onclick = async () => {
+  try {
+    const r = await api("/api/starter", { method: "POST" });
+    await refresh();
+    const brief = r.files.find((x) => x.endsWith(".md")), names = r.files.find((x) => x.endsWith(".json"));
+    if (brief) $("brief").value = brief;
+    if (names) $("glossary").value = names;
+    $("genre").value = "comic"; $("style").value = "lylan"; updateGenreHint(); saveForm();
+    toast("Đã cài bộ khởi đầu Discworld và chọn sẵn ở bước 2.");
+  } catch (e) { toast(e.message); }
+};
+
+// ---- hướng dẫn dịch ---------------------------------------------------------
+async function loadBrief() {
+  const path = $("brief").value;
+  $("briefName").textContent = path || "chưa chọn file";
+  $("briefText").value = path ? (await api("/api/file?path=" + encodeURIComponent(path))).content : "";
+}
+$("saveBrief").onclick = async () => {
+  const path = $("brief").value; if (!path) return toast("Chưa chọn file hướng dẫn (bước 2) hoặc tạo file mới.");
+  await api("/api/file?path=" + encodeURIComponent(path), { method: "PUT", body: $("briefText").value });
+  toast("Đã lưu " + path);
+};
+$("newBriefBtn").onclick = async () => {
+  let name = $("newBrief").value.trim(); if (!name) return;
+  if (!name.endsWith(".md")) name += ".md";
+  await api("/api/file?path=" + encodeURIComponent(name), { method: "PUT", body: "# Hướng dẫn dịch\n\n## Tinh thần chung\n- \n\n## Giọng nhân vật\n- \n\n## Ghi chú của tôi\n- \n" });
+  await refresh(); $("brief").value = name; saveForm(); loadBrief(); toast("Đã tạo " + name);
+};
+
+// ---- sổ tay -------------------------------------------------------------------
+function bibleRel() { let b = $("bible").value.trim() || "discworld.bible.json"; if (!b.endsWith(".bible.json")) b = b.replace(/\.json$/, "") + ".bible.json"; return b; }
+async function loadBible() {
+  const rel = bibleRel(); $("bibleName").textContent = rel;
+  const r = await api("/api/file?path=" + encodeURIComponent(rel));
+  bibleData = r.exists ? JSON.parse(r.content) : { version: 1, entities: [], addressing: [], sections: {} };
+  renderBible();
+}
+function renderBible() {
+  const filter = $("bibleFilter").value.toLowerCase();
+  const typeOpts = (t) => [...new Set([...ENTITY_TYPES, t])].map((x) => `<option ${x === t ? "selected" : ""}>${esc(x)}</option>`).join("");
+  $("entities").innerHTML = bibleData.entities.map((e, i) => {
+    if (filter && !(e.source + " " + e.target + " " + (e.aliases || []).join(" ")).toLowerCase().includes(filter)) return "";
+    return `<tr data-i="${i}"><td><input data-f="source" value="${esc(e.source)}"></td><td><input data-f="target" value="${esc(e.target)}"></td>
+      <td><select data-f="type">${typeOpts(e.type || "term")}</select></td><td><input data-f="note" value="${esc(e.note || "")}" title="tên khác: ${esc((e.aliases || []).join(", "))}"></td>
+      <td><button class="btn danger" data-del="${i}" title="Xóa">✕</button></td></tr>`;
+  }).join("");
+  $("addressing").innerHTML = bibleData.addressing.map((a, i) => `<tr data-a="${i}">${["speaker", "listener", "self_term", "other_term", "context"].map((f) =>
+    `<td><input data-f="${f}" value="${esc(a[f] || "")}"></td>`).join("")}<td><button class="btn danger" data-adel="${i}">✕</button></td></tr>`).join("");
+  $("bibleInfo").textContent = `${bibleData.entities.length} tên · ${bibleData.addressing.length} cặp xưng hô · ${Object.keys(bibleData.sections || {}).length} chương đã tóm tắt`;
+}
+$("entities").addEventListener("input", (e) => { const tr = e.target.closest("tr"); if (tr && e.target.dataset.f) bibleData.entities[tr.dataset.i][e.target.dataset.f] = e.target.value; });
+$("entities").addEventListener("change", (e) => { const tr = e.target.closest("tr"); if (tr && e.target.dataset.f) bibleData.entities[tr.dataset.i][e.target.dataset.f] = e.target.value; });
+$("entities").addEventListener("click", (e) => { if (e.target.dataset.del !== undefined) { bibleData.entities.splice(+e.target.dataset.del, 1); renderBible(); } });
+$("addressing").addEventListener("input", (e) => { const tr = e.target.closest("tr"); if (tr) bibleData.addressing[tr.dataset.a][e.target.dataset.f] = e.target.value; });
+$("addressing").addEventListener("click", (e) => { if (e.target.dataset.adel !== undefined) { bibleData.addressing.splice(+e.target.dataset.adel, 1); renderBible(); } });
+$("addEntity").onclick = () => { bibleData.entities.unshift({ source: "", target: "", type: "character", aliases: [], gender: "", note: "" }); $("bibleFilter").value = ""; renderBible(); };
+$("addAddr").onclick = () => { bibleData.addressing.push({ speaker: "", listener: "", self_term: "", other_term: "", context: "" }); renderBible(); };
+$("bibleFilter").oninput = renderBible;
+$("reloadBible").onclick = loadBible;
+$("saveBible").onclick = async () => {
+  bibleData.entities = bibleData.entities.filter((e) => e.source.trim() && e.target.trim());
+  await api("/api/file?path=" + encodeURIComponent(bibleRel()), { method: "PUT", body: JSON.stringify(bibleData, null, 2) });
+  renderBible(); toast("Đã lưu sổ tay. Đoạn đã dịch dùng tên cũ: tick \"dịch lại từ đầu\" khi chạy.");
+};
+
+// ---- chạy tác vụ ----------------------------------------------------------------
+function collect(action) {
+  return {
+    action, book: $("book").value, genre: $("genre").value, style: $("style").value, muc: $("muc").value, polish: $("polish").value,
+    providers: [...document.querySelectorAll("#providers input:checked")].map((i) => i.value),
+    model: $("model").value, effort: $("effort").value, brief: $("brief").value, bible: bibleRel(), glossary: $("glossary").value,
+    note: $("note").value, chunks: $("chunks").value, section: $("section").value, fresh: $("fresh").checked,
+    ban_dich: $("banDich").value, ban_goc: $("banGoc").value, style_name: $("styleName").value, style_output: $("styleOut").value,
+  };
+}
+document.querySelectorAll("[data-action]").forEach((b) => b.onclick = async () => {
+  const action = b.dataset.action;
+  if (action === "translate" && !confirm("Dịch cả cuốn sẽ dùng nhiều token / hạn mức. Bạn đã dịch thử và ưng ý chưa?")) return;
+  try {
+    const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(collect(action)) });
+    currentJob = job; logNext = 0; $("log").textContent = ""; $("outputs").innerHTML = "";
+    document.querySelector('nav button[data-tab="run"]').click();
+    poll();
+  } catch (e) { toast(e.message); }
+});
+$("cancelBtn").onclick = async () => { if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" }); };
+const LABEL = { running: "đang chạy…", done: "xong ✓", error: "lỗi — xem nhật ký", cancelled: "đã dừng (tiến độ đã lưu)" };
+async function poll() {
+  if (!currentJob) return;
+  const j = await api(`/api/jobs/${currentJob.id}?since=${logNext}`);
+  if (j.lines.length) { const log = $("log"); log.textContent += j.lines.join("\n") + "\n"; log.scrollTop = log.scrollHeight; }
+  logNext = j.next;
+  $("jobStatus").textContent = LABEL[j.status] || j.status; $("jobStatus").className = "status " + j.status;
+  $("cancelBtn").disabled = j.status !== "running";
+  document.querySelectorAll("[data-action]").forEach((b) => b.disabled = j.status === "running");
+  if (j.status === "running") return setTimeout(poll, 1000);
+  $("outputs").innerHTML = j.status === "done" ? "<p><b>Kết quả:</b></p><ul class='files'>" + j.outputs.map(fileLink).join("") + "</ul>" : "";
+  await refresh();
+  if (j.action === "preview" && j.status === "done") { $("previewName").textContent = j.outputs[0]; showMarkdown(j.outputs[0]); }
+}
+document.addEventListener("click", (e) => { const v = e.target.dataset && e.target.dataset.view; if (v) { e.preventDefault(); $("previewName").textContent = v; showMarkdown(v); } });
+
+// ---- xem bản dịch thử (Markdown tối giản) ----------------------------------------
+function renderMarkdown(md) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|\W)\*(\S.*?)\*(?=\W|$)/g, "$1<i>$2</i>");
+  const out = []; let para = [], list = false;
+  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; };
+  for (const line of md.split("\n")) {
+    const h = line.match(/^(#{1,3})\s+(.*)/);
+    if (h) { flush(); if (list) { out.push("</ul>"); list = false; } out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+    if (/^- /.test(line)) { flush(); if (!list) { out.push("<ul>"); list = true; } out.push("<li>" + inline(line.slice(2)) + "</li>"); continue; }
+    if (!line.trim()) { flush(); if (list) { out.push("</ul>"); list = false; } continue; }
+    para.push(line);
+  }
+  flush(); if (list) out.push("</ul>");
+  return out.join("");
+}
+async function showMarkdown(rel) {
+  try { const r = await api("/api/file?path=" + encodeURIComponent(rel)); $("preview").innerHTML = r.exists ? renderMarkdown(r.content) : '<p class="hint">Chưa có file.</p>'; }
+  catch (e) { toast(e.message); }
+}
+function loadPreview() { const rel = $("previewName").textContent || (state && state.files.results.find((r) => r.endsWith(".preview.md"))); if (rel) { $("previewName").textContent = rel; showMarkdown(rel); } }
+$("reloadPreview").onclick = loadPreview;
+
+// ---- API key ----------------------------------------------------------------------
+$("saveKeys").onclick = async () => {
+  const r = await api("/api/keys", { method: "POST", body: JSON.stringify({ claude: $("kClaude").value, deepseek: $("kDeepseek").value, openai: $("kOpenai").value }) });
+  state.providers = r.providers; renderProviders();
+  document.querySelectorAll("#providers .badge").forEach((b, i) => { const ok = r.providers[PROVIDERS[i][0]]; b.className = "badge " + (ok ? "ok" : "no"); b.textContent = ok ? "sẵn sàng" : "chưa kết nối"; });
+  toast("Đã cập nhật kết nối.");
+};
+
+refresh(true).catch((e) => toast("Không tải được trạng thái: " + e.message));
+</script>
+</body>
+</html>

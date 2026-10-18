@@ -1,0 +1,138 @@
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+
+from booktranslator.webui import App, _safe_name, make_handler
+
+
+@pytest.fixture
+def server(tmp_path):
+    app = App(tmp_path / "ws")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def call(path, method="GET", body=None, token=True, raw=False):
+        data = body if isinstance(body, bytes) or body is None else (body if isinstance(body, str) else json.dumps(body)).encode()
+        req = urllib.request.Request(base + path, data=data, method=method)
+        if token:
+            req.add_header("X-BT-Token", app.token)
+        try:
+            with urllib.request.urlopen(req) as res:
+                content = res.read()
+                return res.status, (content if raw else json.loads(content))
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    yield app, call, base
+    httpd.shutdown()
+
+
+def test_index_embeds_token_and_api_requires_it(server):
+    app, call, base = server
+    html = urllib.request.urlopen(base + "/").read().decode()
+    assert app.token in html and "BookTranslator" in html
+    assert call("/api/state", token=False)[0] == 403
+    status, state = call("/api/state")
+    assert status == 200 and {g["key"] for g in state["genres"]} >= {"comic", "fantasy"}
+    assert set(state["providers"]) == {"claude-code", "claude", "deepseek", "openai"}
+
+
+def test_upload_files_and_text_editing(server):
+    app, call, _ = server
+    status, r = call("/api/upload?name=../../evil/The%20Colour.epub", "POST", b"epubdata")
+    assert status == 200 and r["path"] == "The Colour.epub"  # bỏ thư mục, không thoát ra ngoài
+    assert (app.workspace / "The Colour.epub").read_bytes() == b"epubdata"
+    assert call("/api/state")[1]["files"]["books"] == ["The Colour.epub"]
+
+    assert call("/api/file?path=notes/huong-dan.md", "PUT", "# Hướng dẫn")[0] == 200
+    assert call("/api/file?path=notes/huong-dan.md")[1]["content"] == "# Hướng dẫn"
+    assert call("/api/file?path=x.bible.json", "PUT", "{hỏng")[0] == 400  # không lưu JSON hỏng
+    assert call("/api/file?path=../../etc/passwd.txt")[0] == 400
+    assert call("/api/file?path=script.py", "PUT", "print(1)")[0] == 400
+
+    status, content = call("/api/download?path=The%20Colour.epub", raw=True)
+    assert status == 200 and content == b"epubdata"
+
+
+def test_build_job_argv(server):
+    app, _, _ = server
+    (app.workspace / "book.epub").write_bytes(b"x")
+    (app.workspace / "dw.md").write_text("hd")
+    (app.workspace / "lylan-hp.json").write_text("{}")
+    action, argv, outputs = app.build_job({
+        "action": "preview", "book": "book.epub", "genre": "comic", "style": "file:lylan-hp.json", "brief": "dw.md",
+        "bible": "discworld", "muc": "tiet-kiem", "providers": ["claude-code", "deepseek", "rm -rf"], "polish": "on",
+        "note": "--fresh không phải tùy chọn", "chunks": "3",
+    })
+    ws = app.workspace
+    assert argv[:3] == ["dich-thu", str(ws / "book.epub"), "--the-loai=comic"]
+    assert f"--phong-cach-file={ws / 'lylan-hp.json'}" in argv and f"--huong-dan={ws / 'dw.md'}" in argv
+    assert "--providers=claude-code,deepseek" in argv and "--muc=tiet-kiem" in argv and "--polish" in argv
+    assert "--yeu-cau=--fresh không phải tùy chọn" in argv and "--fresh" not in argv
+    assert f"--so-tay={ws / 'discworld.bible.json'}" in argv and "--chunks=3" in argv
+    assert outputs == ["book.vi.epub.preview.md", "discworld.bible.json"]
+
+    _, argv, outputs = app.build_job({"action": "translate", "book": "book.epub", "genre": "comic", "style": "lylan"})
+    assert argv[0] == "dich" and "--phong-cach=lylan" in argv
+    assert outputs == ["book.vi.epub", "book.vi.epub.consistency.md", "book.bible.json"]
+
+    with pytest.raises(ValueError):
+        app.build_job({"action": "translate", "book": "book.epub", "genre": "bad"})
+    with pytest.raises(FileNotFoundError):
+        app.build_job({"action": "preview", "book": "missing.epub"})
+    with pytest.raises(ValueError):
+        app.build_job({"action": "rm"})
+
+
+def test_job_runs_and_streams_output(server):
+    app, call, _ = server
+    app.build_job = lambda opts: ("preview", ["the-loai"], [])  # lệnh vô hại, không gọi AI
+    status, job = call("/api/jobs", "POST", {"action": "preview"})
+    assert status == 200
+    for _ in range(100):
+        status, info = call(f"/api/jobs/{job['id']}")
+        if info["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert info["status"] == "done" and any("comic" in line for line in info["lines"])
+
+
+def test_only_one_job_at_a_time(server):
+    app, call, _ = server
+    app.build_job = lambda opts: ("preview", ["giao-dien", "--no-browser", "--port", "0", "--thu-muc", str(app.workspace)], [])
+    status, job = call("/api/jobs", "POST", {})
+    assert status == 200
+    assert call("/api/jobs", "POST", {})[0] == 400
+    call(f"/api/jobs/{job['id']}/cancel", "POST")
+    for _ in range(50):
+        if call(f"/api/jobs/{job['id']}")[1]["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert call(f"/api/jobs/{job['id']}")[1]["status"] == "cancelled"
+
+
+def test_starter_kit(server):
+    app, call, _ = server
+    status, r = call("/api/starter", "POST")
+    assert status == 200 and "discworld/huong-dan-dich.md" in r["files"]
+    assert (app.workspace / "discworld" / "ten-rieng.json").exists()
+
+
+def test_keys_are_memory_only(server):
+    app, call, _ = server
+    status, r = call("/api/keys", "POST", {"deepseek": "sk-test"})
+    assert status == 200 and app.keys["deepseek"] == "sk-test"
+    assert not any("sk-test" in p.read_text(errors="ignore") for p in app.workspace.rglob("*") if p.is_file())
+
+
+def test_safe_name():
+    assert _safe_name("../a/b/--evil.epub") == "evil.epub"
+    assert _safe_name("C:\\\\Users\\\\x\\\\sách hay.epub") == "sách hay.epub"
+    assert _safe_name("...") == "file"

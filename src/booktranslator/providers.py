@@ -8,9 +8,14 @@ chối một đoạn thì thử đoạn đó ở nhà cung cấp kế tiếp.
 
 from __future__ import annotations
 
+import atexit
+import hashlib
 import json
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,6 +28,7 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Model mặc định của từng nhà cung cấp; đổi bằng "tên:model" trong --providers.
 DEFAULT_MODELS = {
     "claude": "claude-opus-5-5",
+    "claude-code": "claude-opus-5-5",
     "deepseek": "deepseek-chat",
     "openai": "gpt-5",
 }
@@ -135,6 +141,81 @@ class ClaudeProvider(Provider):
             details = getattr(message, "stop_details", None)
             return Completion(text, "refusal", getattr(details, "category", None) if details else None, self.id)
         return Completion(text, "max_tokens" if message.stop_reason == "max_tokens" else "end", provider=self.id)
+
+
+# ---- Claude Code (dùng gói Claude Pro/Max đang đăng nhập) ------------
+
+
+class ClaudeCodeProvider(Provider):
+    """Gọi `claude -p` (Claude Code chế độ không tương tác) thay cho API.
+
+    Dùng hạn mức của gói Claude đang đăng nhập trong Claude Code, không tính tiền API.
+    Biến ANTHROPIC_API_KEY bị xóa khỏi môi trường của tiến trình con — nếu không,
+    Claude Code sẽ dùng API key đó và tính tiền API.
+    """
+
+    name = "claude-code"
+
+    def __init__(self, model: str = DEFAULT_MODELS["claude-code"], executable: str | None = None, timeout: int = 900):
+        super().__init__(model)
+        self.exe = executable or shutil.which("claude")
+        if not self.exe:
+            raise ProviderUnavailable("Chưa cài Claude Code (lệnh `claude`). Cài tại https://claude.com/claude-code rồi đăng nhập.")
+        self.timeout = timeout
+        self._dir = tempfile.mkdtemp(prefix="booktranslator-")
+        atexit.register(shutil.rmtree, self._dir, True)
+
+    def _system_file(self, system: str) -> str:
+        # Prompt hệ thống quá dài để truyền qua dòng lệnh (giới hạn của Windows) → ghi ra file, dùng lại theo nội dung.
+        path = os.path.join(self._dir, hashlib.sha256(system.encode("utf-8")).hexdigest()[:16] + ".txt")
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(system)
+        return path
+
+    def _env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            env.pop(key, None)
+        return env
+
+    def complete(self, system, user, *, effort="medium", json_schema=None, max_tokens=None):
+        cmd = [
+            self.exe, "-p", "--output-format", "json",
+            "--tools", "",  # chỉ dịch, không cho dùng công cụ nào
+            "--system-prompt-file", self._system_file(system),
+            "--model", self.model, "--effort", effort,
+            "--no-session-persistence", "--strict-mcp-config",
+        ]
+        if json_schema is not None:
+            cmd += ["--json-schema", json.dumps(json_schema, ensure_ascii=False)]  # Claude Code tự kiểm tra định dạng
+        try:
+            proc = subprocess.run(cmd, input=user.encode("utf-8"), capture_output=True, timeout=self.timeout, env=self._env())
+        except subprocess.TimeoutExpired as e:
+            raise ProviderUnavailable(f"Claude Code không trả lời sau {self.timeout} giây") from e
+        except OSError as e:
+            raise ProviderUnavailable(f"Không chạy được Claude Code: {e}") from e
+        out = proc.stdout.decode("utf-8", errors="replace")
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            err = (proc.stderr.decode("utf-8", errors="replace") or out).strip()[-500:]
+            raise ProviderUnavailable(f"Claude Code lỗi (mã {proc.returncode}): {err}") from None
+        if data.get("is_error"):
+            # Hết hạn mức gói, chưa đăng nhập, lỗi mạng... → để chuỗi dự phòng chuyển sang nhà cung cấp khác.
+            raise ProviderUnavailable(f"Claude Code: {str(data.get('result', ''))[:300]}")
+        u = data.get("usage") or {}
+        cached = u.get("cache_read_input_tokens") or 0
+        self.usage.add(
+            (u.get("input_tokens") or 0) + cached + (u.get("cache_creation_input_tokens") or 0), u.get("output_tokens") or 0, cached
+        )
+        text = data.get("result") or ""
+        if json_schema is not None and isinstance(data.get("structured_output"), dict):
+            text = json.dumps(data["structured_output"], ensure_ascii=False)
+        stop = data.get("stop_reason")
+        if stop == "refusal":
+            return Completion(text, "refusal", None, self.id)
+        return Completion(text, "max_tokens" if stop == "max_tokens" else "end", provider=self.id)
 
 
 # ---- OpenAI-compatible (ChatGPT, DeepSeek) ----------------------------
@@ -261,10 +342,9 @@ def parse_spec(spec: str) -> list[tuple[str, str | None]]:
             continue
         name, _, model = part.partition(":")
         name = name.strip().lower()
-        if name in ("chatgpt", "gpt"):
-            name = "openai"
+        name = {"chatgpt": "openai", "gpt": "openai", "claudecode": "claude-code", "cc": "claude-code"}.get(name, name)
         if name not in DEFAULT_MODELS:
-            raise ValueError(f"Nhà cung cấp '{name}' không hỗ trợ (có: claude, deepseek, openai)")
+            raise ValueError(f"Nhà cung cấp '{name}' không hỗ trợ (có: claude-code, claude, deepseek, openai)")
         out.append((name, model.strip() or None))
     return out
 
@@ -283,6 +363,8 @@ def build_chain(
         try:
             if name == "claude":
                 providers.append(ClaudeProvider(model or DEFAULT_MODELS["claude"], use_fallback=use_fallback))
+            elif name == "claude-code":
+                providers.append(ClaudeCodeProvider(model or DEFAULT_MODELS["claude-code"]))
             else:
                 providers.append(OpenAICompatProvider(name, model))
         except ProviderUnavailable as e:

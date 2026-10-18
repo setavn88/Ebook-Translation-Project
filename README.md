@@ -11,7 +11,36 @@ Bốn mục tiêu và cách công cụ đáp ứng:
 | **3. Theo phong cách một dịch giả** (vd. Lý Lan dịch Harry Potter) | **Hồ sơ phong cách dịch**: có sẵn mô tả kiểu Lý Lan. Tốt nhất là **tự học từ sách tham chiếu** bạn đưa vào (`hoc-phong-cach`). |
 | **4. Ít token nhất; đổi được API** khi Claude hết quota | Prompt cố định để trúng cache, chỉ gửi phần sổ tay liên quan, lưu lại mọi kết quả, có 3 **mức chi phí**, bước phân tích dùng model rẻ hơn. Hỗ trợ **Claude, DeepSeek, ChatGPT**; lỗi hoặc hết quota thì tự chuyển sang API kế tiếp. |
 
-## Bắt đầu nhanh: dịch thử một cuốn Discworld
+## Cách dễ nhất: giao diện trên trình duyệt
+
+Sau khi cài đặt (xem bên dưới), **bấm đúp `Mo-giao-dien.bat`** (Windows) hoặc **`mo-giao-dien.command`** (macOS), hoặc gõ:
+
+```bash
+booktranslator giao-dien
+```
+
+Trình duyệt tự mở trang `http://127.0.0.1:8765`. Giao diện chạy trên máy bạn; sách và kết quả nằm trong thư mục `BookTranslator` ở thư mục người dùng (đổi bằng `--thu-muc`). Các bước:
+
+1. **Sách:** kéo thả file EPUB vào. Bấm "Cài bộ khởi đầu Discworld" để có sẵn file hướng dẫn dịch và bảng tên riêng.
+2. **Cài đặt dịch:** chọn thể loại, phong cách, mức chi phí, và AI nào dùng (**Claude Code** để dùng gói Pro/Max của bạn, không tốn tiền API).
+3. **Hướng dẫn dịch:** sửa "prompt" của cuốn sách ngay trên trang.
+4. **Sổ tay tên riêng:** bảng tên và cách xưng hô, sửa trực tiếp.
+5. **Dịch & kết quả:** *Dịch thử*, rồi đọc bản gốc / bản nháp / bản biên tập đặt cạnh nhau. Khi đã ưng thì bấm *Dịch cả cuốn*. Có nút *Dừng*; lần sau chạy tiếp từ chỗ dừng.
+
+Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và tab **⚙ Kết nối AI** (xem trạng thái, nhập API key tạm thời).
+
+## Dùng gói Claude Pro/Max qua Claude Code (không tốn tiền API)
+
+1. Cài Claude Code: https://claude.com/claude-code
+2. Mở Terminal, gõ `claude` và đăng nhập bằng tài khoản Claude của bạn. Chỉ cần làm một lần.
+3. Trong giao diện, tick **Claude Code**. Nếu dùng dòng lệnh, thêm `--providers claude-code`.
+
+Lưu ý:
+- **Hạn mức:** việc dịch tính vào hạn mức của gói (theo khung vài giờ và theo tuần), không phải tiền API. Dịch cả cuốn có biên tập khá tốn hạn mức: gói Pro dễ chạm giới hạn giữa chừng, gói Max thoải mái hơn. Chạm giới hạn thì phần mềm dừng và lưu tiến độ; hoặc thêm DeepSeek làm dự phòng (`--providers claude-code,deepseek`).
+- **Không bị tính tiền API:** khi gọi Claude Code, phần mềm cố ý **không** truyền `ANTHROPIC_API_KEY`, để Claude Code luôn dùng gói đã đăng nhập.
+- **Chỉ dùng cá nhân:** đây là dùng tài khoản của chính bạn để dịch sách tự đọc. Đừng dùng cách này để chạy dịch vụ cho người khác.
+
+## Bắt đầu nhanh bằng dòng lệnh: dịch thử một cuốn Discworld
 
 **1. Tải về và cài đặt** (cần [Python ≥ 3.10](https://www.python.org/downloads/) và [Git](https://git-scm.com/)):
 
@@ -210,6 +239,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 
 | Tên | Biến môi trường | Model mặc định |
 |---|---|---|
+| `claude-code` | không cần (đăng nhập Claude Code) | theo `--muc` |
 | `claude` | `ANTHROPIC_API_KEY` | theo `--muc` |
 | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
 | `openai` (hay `chatgpt`) | `OPENAI_API_KEY` | `gpt-5` |
@@ -266,6 +296,7 @@ src/booktranslator/
   consistency.py  # kiểm tra tên gốc còn sót
   pipeline.py     # phân tích → dịch → kiểm tra & sửa; dịch thử
   document.py     # đọc/ghi TXT, Markdown, EPUB theo chương
+  webui.py, webui.html  # giao diện trên trình duyệt (booktranslator giao-dien)
   chunker.py, cache.py, cli.py
 ```
 

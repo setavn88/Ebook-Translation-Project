@@ -7,6 +7,7 @@ import pytest
 
 from booktranslator.providers import (
     FALLBACK_BETA,
+    ClaudeCodeProvider,
     ClaudeProvider,
     OpenAICompatProvider,
     ProviderChain,
@@ -184,3 +185,72 @@ def test_claude_missing_key_is_unavailable():
     client, _ = claude_client(error=TypeError('"Could not resolve authentication method. Expected one of api_key"'))
     with pytest.raises(ProviderUnavailable):
         ClaudeProvider(client=client).complete("s", "u")
+
+
+# ---- Claude Code (claude -p) ------------------------------------------
+
+FAKE_CLAUDE = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+prompt = sys.stdin.read()
+system = open(args[args.index("--system-prompt-file") + 1], encoding="utf-8").read()
+mode = os.environ.get("FAKE_MODE", "ok")
+if mode == "limit":
+    print(json.dumps({"type": "result", "is_error": True, "result": "Claude AI usage limit reached"}))
+elif mode == "crash":
+    sys.stderr.write("boom")
+    sys.exit(3)
+else:
+    payload = {"args": args, "prompt": prompt, "system": system, "has_key": "ANTHROPIC_API_KEY" in os.environ}
+    reply = {
+        "type": "result", "is_error": False, "stop_reason": "end_turn",
+        "result": "Đây là JSON: " + json.dumps(payload),
+        "usage": {"input_tokens": 3, "cache_read_input_tokens": 7, "output_tokens": 4},
+    }
+    if "--json-schema" in args:
+        reply["structured_output"] = payload
+    print(json.dumps(reply))
+"""
+
+
+@pytest.fixture
+def fake_claude(tmp_path):
+    exe = tmp_path / "claude"
+    exe.write_text(FAKE_CLAUDE)
+    exe.chmod(0o755)
+    return str(exe)
+
+
+def test_claude_code_call(fake_claude, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+    p = ClaudeCodeProvider("claude-sonnet-5-5", executable=fake_claude)
+    result = p.complete("HỆ THỐNG", "Dịch: hello", effort="high", json_schema={"type": "object"})
+    data = __import__("json").loads(result.text)
+    args = data["args"]
+    assert args[:3] == ["-p", "--output-format", "json"]
+    assert args[args.index("--tools") + 1] == ""
+    assert args[args.index("--model") + 1] == "claude-sonnet-5-5" and args[args.index("--effort") + 1] == "high"
+    assert data["prompt"] == "Dịch: hello" and data["system"] == "HỆ THỐNG"
+    assert __import__("json").loads(args[args.index("--json-schema") + 1]) == {"type": "object"}
+    assert data["has_key"] is False  # không để Claude Code dùng API key → không tính tiền API
+    assert p.usage.input_tokens == 10 and p.usage.cached_input_tokens == 7
+
+
+def test_claude_code_limit_and_crash_mean_unavailable(fake_claude, monkeypatch):
+    p = ClaudeCodeProvider(executable=fake_claude)
+    monkeypatch.setenv("FAKE_MODE", "limit")
+    with pytest.raises(ProviderUnavailable, match="usage limit"):
+        p.complete("s", "u")
+    monkeypatch.setenv("FAKE_MODE", "crash")
+    with pytest.raises(ProviderUnavailable, match="boom"):
+        p.complete("s", "u")
+
+
+def test_claude_code_not_installed(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    with pytest.raises(ProviderUnavailable):
+        ClaudeCodeProvider()
+
+
+def test_parse_spec_claude_code_alias():
+    assert parse_spec("cc,claude-code:claude-opus-5-5") == [("claude-code", None), ("claude-code", "claude-opus-5-5")]
