@@ -31,6 +31,7 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 DEFAULT_MODELS = {
     "claude": "claude-opus-5-5",
     "claude-code": "claude-opus-5-5",
+    "codex": "",  # để trống = model mặc định trong cấu hình Codex của người dùng
     "deepseek": "deepseek-chat",
     "openai": "gpt-5",
 }
@@ -109,7 +110,7 @@ class Provider:
 
     @property
     def id(self) -> str:
-        return f"{self.name}:{self.model}"
+        return f"{self.name}:{self.model or 'mặc định'}"
 
     def complete(
         self, system: str, user: str, *, effort: str = "medium", json_schema: dict | None = None, max_tokens: int | None = None
@@ -298,6 +299,127 @@ class ClaudeCodeProvider(Provider):
         return Completion(text, "max_tokens" if stop == "max_tokens" else "end", provider=self.id)
 
 
+# ---- Codex (dùng gói ChatGPT Plus/Pro đang đăng nhập) -----------------
+
+CODEX_PATH_ENV = "BT_CODEX_PATH"
+
+
+def find_codex() -> str | None:
+    """Tìm lệnh `codex`: biến BT_CODEX_PATH, PATH, rồi các chỗ cài npm quen thuộc."""
+    custom = os.environ.get(CODEX_PATH_ENV, "").strip().strip('"')
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which("codex")
+    if found:
+        return found
+    candidates = [
+        os.path.join(os.environ.get("APPDATA", ""), "npm", "codex.cmd"),
+        os.path.join(os.path.expanduser("~"), ".local", "bin", "codex"),
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+    ]
+    return next((c for c in candidates if c and os.path.isfile(c)), None)
+
+
+class CodexProvider(Provider):
+    """Gọi `codex exec` (Codex CLI chế độ không tương tác) — dùng hạn mức gói ChatGPT, không tính tiền API.
+
+    Codex là một agent biết chạy lệnh; ở đây nó chạy trong thư mục tạm trống với sandbox chỉ-đọc
+    và chỉ được yêu cầu trả lời bằng văn bản. OPENAI_API_KEY / CODEX_API_KEY bị xóa khỏi môi trường
+    để Codex dùng tài khoản ChatGPT đã đăng nhập thay vì API key (tính tiền).
+    """
+
+    name = "codex"
+
+    def __init__(self, model: str = "", executable: str | None = None, timeout: int = 900):
+        super().__init__(model or "")
+        self.exe = executable or find_codex()
+        if not self.exe:
+            raise ProviderUnavailable("Chưa cài Codex (lệnh `codex`). Cài: npm install -g @openai/codex, rồi `codex login`.")
+        self.timeout = timeout
+        self._check_login()
+        self._dir = tempfile.mkdtemp(prefix="booktranslator-codex-")
+        atexit.register(shutil.rmtree, self._dir, True)
+
+    def _check_login(self) -> None:
+        """Chưa đăng nhập thì `codex exec` treo tới hết thời gian chờ — hỏi `codex login status` trước cho nhanh."""
+        try:
+            proc = subprocess.run([self.exe, "login", "status"], capture_output=True, timeout=30, env=self._env())
+        except (subprocess.TimeoutExpired, OSError):
+            return  # không xác định được thì cứ thử gọi bình thường
+        text = (proc.stdout + proc.stderr).decode("utf-8", errors="replace")
+        if proc.returncode != 0 or "not logged in" in text.lower():
+            raise ProviderUnavailable("Codex chưa đăng nhập. Mở PowerShell/Terminal, chạy `codex login` rồi đăng nhập tài khoản ChatGPT.")
+
+    def _env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        for key in ("OPENAI_API_KEY", "CODEX_API_KEY"):
+            env.pop(key, None)
+        return env
+
+    def complete(self, system, user, *, effort="medium", json_schema=None, max_tokens=None):
+        out_file = os.path.join(self._dir, f"out-{threading.get_ident()}-{time.monotonic_ns()}.txt")
+        cmd = [
+            self.exe, "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--json",
+            "--color", "never", "-C", self._dir, "-o", out_file,
+            "-c", f'model_reasoning_effort="{ {"xhigh": "high", "max": "high"}.get(effort, effort) }"',
+        ]
+        if self.model:
+            cmd += ["-m", self.model]
+        if json_schema is not None:
+            schema_file = os.path.join(self._dir, hashlib.sha256(json.dumps(json_schema).encode()).hexdigest()[:16] + ".json")
+            if not os.path.exists(schema_file):
+                with open(schema_file, "w", encoding="utf-8") as f:
+                    json.dump(json_schema, f, ensure_ascii=False)
+            cmd += ["--output-schema", schema_file]
+        cmd.append("-")  # đọc yêu cầu từ stdin
+        prompt = (
+            "Đây là việc dịch thuật thuần văn bản: KHÔNG chạy lệnh, KHÔNG đọc hay sửa file nào. "
+            "Chỉ trả lời đúng theo hướng dẫn.\n\n"
+            f"<instructions>\n{system}\n</instructions>\n\n{user}"
+        )
+        try:
+            proc = subprocess.run(cmd, input=prompt.encode("utf-8"), capture_output=True, timeout=self.timeout, env=self._env())
+        except subprocess.TimeoutExpired as e:
+            raise ProviderLimitReached(f"Codex không trả lời sau {self.timeout} giây") from e
+        except OSError as e:
+            raise ProviderUnavailable(f"Không chạy được Codex: {e}") from e
+        events = []
+        for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        errors = [str(e.get("message") or e.get("error") or "") for e in events if "error" in str(e.get("type", ""))]
+        text = ""
+        if os.path.exists(out_file):
+            with open(out_file, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            os.remove(out_file)
+        if proc.returncode != 0 or (errors and not text.strip()):
+            message = " ".join(errors) or proc.stderr.decode("utf-8", errors="replace").strip()[-500:]
+            if _TEMPORARY_RE.search(message):
+                raise ProviderLimitReached(f"Codex: {message[:300]}", _limit_reset_time(message))
+            raise ProviderUnavailable(f"Codex lỗi (mã {proc.returncode}): {message[:300]}")
+        for event in events:
+            usage = event.get("usage") if isinstance(event, dict) else None
+            if isinstance(usage, dict):
+                cached = usage.get("cached_input_tokens") or 0
+                self.usage.add(usage.get("input_tokens") or 0, usage.get("output_tokens") or 0, cached)
+        return Completion(text.strip(), "end", provider=self.id)
+
+
+def check_codex(timeout: int = 120) -> tuple[bool, str]:
+    exe = find_codex()
+    if not exe:
+        return False, "Không tìm thấy Codex trên máy (lệnh `codex`)."
+    try:
+        result = CodexProvider(executable=exe, timeout=timeout).complete("Trả lời đúng một chữ: OK", "Kiểm tra kết nối", effort="low")
+    except ProviderUnavailable as e:
+        return False, f"Tìm thấy {exe} nhưng gọi thử thất bại: {e}"
+    return True, f"Kết nối được ({exe}). Trả lời thử: {result.text.strip()[:40]}"
+
+
 # ---- OpenAI-compatible (ChatGPT, DeepSeek) ----------------------------
 
 
@@ -467,7 +589,7 @@ def parse_spec(spec: str) -> list[tuple[str, str | None]]:
         name = name.strip().lower()
         name = {"chatgpt": "openai", "gpt": "openai", "claudecode": "claude-code", "cc": "claude-code"}.get(name, name)
         if name not in DEFAULT_MODELS:
-            raise ValueError(f"Nhà cung cấp '{name}' không hỗ trợ (có: claude-code, claude, deepseek, openai)")
+            raise ValueError(f"Nhà cung cấp '{name}' không hỗ trợ (có: claude-code, codex, claude, deepseek, openai)")
         out.append((name, model.strip() or None))
     return out
 
@@ -491,6 +613,8 @@ def build_chain(
                 providers.append(ClaudeProvider(model or DEFAULT_MODELS["claude"], use_fallback=use_fallback))
             elif name == "claude-code":
                 providers.append(ClaudeCodeProvider(model or DEFAULT_MODELS["claude-code"]))
+            elif name == "codex":
+                providers.append(CodexProvider(model or ""))
             else:
                 providers.append(OpenAICompatProvider(name, model))
         except ProviderUnavailable as e:

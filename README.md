@@ -43,6 +43,35 @@ Lưu ý:
 - **Không bị tính tiền API:** khi gọi Claude Code, phần mềm cố ý **không** truyền `ANTHROPIC_API_KEY`, để Claude Code luôn dùng gói đã đăng nhập.
 - **Chỉ dùng cá nhân:** đây là dùng tài khoản của chính bạn để dịch sách tự đọc. Đừng dùng cách này để chạy dịch vụ cho người khác.
 
+## Dùng gói ChatGPT qua Codex, và chia vai dịch / biên tập
+
+**Codex** (Codex CLI của OpenAI) dùng gói ChatGPT Plus/Pro, không tốn tiền API:
+
+1. Cài [Node.js](https://nodejs.org) (bản LTS).
+2. Mở PowerShell/Terminal mới, chạy `npm install -g @openai/codex`.
+3. Chạy `codex login`, đăng nhập tài khoản ChatGPT.
+4. Trong giao diện, tab ⚙ → **Kiểm tra kết nối Codex**.
+
+Khi gọi Codex, phần mềm cố ý không truyền `OPENAI_API_KEY`, để Codex dùng gói đã đăng nhập.
+
+**Thứ tự dự phòng:** đánh dấu nhiều AI; thứ tự là từ trái sang phải. Ví dụ Claude Code → Codex → DeepSeek: hết hạn mức gói Claude thì chuyển sang gói ChatGPT, hết nữa mới dùng DeepSeek (trả tiền nhưng rẻ).
+
+```bash
+booktranslator dich book.epub -g comic --providers claude-code,codex,deepseek
+```
+
+**Chia vai:** một AI dịch nháp, một AI khác biên tập.
+
+```bash
+booktranslator dich book.epub -g comic --providers codex,claude-code --bien-tap-bang claude-code,codex
+```
+
+Trên giao diện là hai hàng "Người dịch nháp" và "Người biên tập". Lợi ích:
+- **Hạn mức tăng gấp đôi:** việc dịch tốn hạn mức gói ChatGPT, việc biên tập tốn hạn mức gói Claude.
+- **Soát lỗi tốt hơn:** một AI khác đọc lại thường bắt được lỗi AI kia bỏ sót.
+
+Nên đánh dấu cả hai AI ở mỗi vai, để vai này hết hạn mức thì dùng AI kia làm dự phòng. Trước khi dịch cả cuốn, hãy so thử bằng **Dịch thử**: bản nháp và bản biên tập hiện cạnh nhau, ghi rõ AI nào làm.
+
 ## Bắt đầu nhanh bằng dòng lệnh: dịch thử một cuốn Discworld
 
 **1. Tải về và cài đặt** (cần [Python ≥ 3.10](https://www.python.org/downloads/) và [Git](https://git-scm.com/)):
@@ -243,6 +272,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | Tên | Biến môi trường | Model mặc định |
 |---|---|---|
 | `claude-code` | không cần (đăng nhập Claude Code) | theo `--muc` |
+| `codex` | không cần (`codex login` bằng tài khoản ChatGPT) | model mặc định của Codex |
 | `claude` | `ANTHROPIC_API_KEY` | theo `--muc` |
 | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
 | `openai` (hay `chatgpt`) | `OPENAI_API_KEY` | `gpt-5` |
@@ -263,6 +293,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `--providers` | `claude` | Nhà cung cấp API theo thứ tự ưu tiên |
 | `--model`, `--effort` | theo `--muc` | Ghi đè model dịch / mức suy nghĩ |
 | `--polish` / `--no-polish` | theo `--muc` | Bật/tắt bước biên tập |
+| `--bien-tap-bang SPEC` | cùng người dịch | AI làm bước biên tập, vd. `claude-code,codex` |
 | `--so-tay FILE` | `<kết quả>.bible.json` | File sổ tay truyện |
 | `--glossary FILE` | | Nạp thêm tên `{"nguồn": "đích"}` vào sổ tay |
 | `--yeu-cau "..."` | | Yêu cầu riêng, ưu tiên cao nhất |

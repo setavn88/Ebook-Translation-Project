@@ -377,3 +377,83 @@ def test_claude_code_limit_is_temporary(fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "limit")
     with pytest.raises(ProviderLimitReached):
         ClaudeCodeProvider(executable=fake_claude).complete("s", "u")
+
+
+# ---- Codex (codex exec) ---------------------------------------------------
+
+from booktranslator.providers import CodexProvider
+
+FAKE_CODEX = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if args[:2] == ["login", "status"]:
+    if os.environ.get("FAKE_MODE") == "logged_out":
+        print("Not logged in"); sys.exit(1)
+    print("Logged in using ChatGPT"); sys.exit(0)
+prompt = sys.stdin.read()
+mode = os.environ.get("FAKE_MODE", "ok")
+if mode == "limit":
+    print(json.dumps({"type": "error", "message": "You've hit your usage limit. Try again later."}))
+    sys.exit(1)
+if mode == "login":
+    sys.stderr.write("Not logged in. Run codex login")
+    sys.exit(1)
+schema = None
+if "--output-schema" in args:
+    schema = json.load(open(args[args.index("--output-schema") + 1], encoding="utf-8"))
+out = args[args.index("-o") + 1]
+with open(out, "w", encoding="utf-8") as f:
+    f.write(json.dumps({"args": args, "prompt": prompt, "schema": schema,
+                        "has_key": "OPENAI_API_KEY" in os.environ}))
+print(json.dumps({"type": "thread.started"}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 50, "cached_input_tokens": 20, "output_tokens": 9}}))
+"""
+
+
+@pytest.fixture
+def fake_codex(tmp_path):
+    exe = tmp_path / "codex"
+    exe.write_text(FAKE_CODEX)
+    exe.chmod(0o755)
+    return str(exe)
+
+
+def test_codex_call(fake_codex, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
+    p = CodexProvider("gpt-5-codex", executable=fake_codex)
+    result = p.complete("QUY TẮC", "Dịch: hello", effort="max", json_schema={"type": "object"})
+    data = __import__("json").loads(result.text)
+    args = data["args"]
+    assert args[0] == "exec" and "--ephemeral" in args and args[args.index("--sandbox") + 1] == "read-only"
+    assert args[args.index("-m") + 1] == "gpt-5-codex" and 'model_reasoning_effort="high"' in args
+    assert args[-1] == "-" and data["schema"] == {"type": "object"}
+    assert "QUY TẮC" in data["prompt"] and "Dịch: hello" in data["prompt"] and "KHÔNG chạy lệnh" in data["prompt"]
+    assert data["has_key"] is False  # dùng gói ChatGPT đã đăng nhập, không dùng API key
+    assert p.usage.input_tokens == 50 and p.usage.cached_input_tokens == 20 and p.id == "codex:gpt-5-codex"
+
+
+def test_codex_limit_and_login_errors(fake_codex, monkeypatch):
+    p = CodexProvider(executable=fake_codex)
+    assert p.id == "codex:mặc định"
+    monkeypatch.setenv("FAKE_MODE", "limit")
+    with pytest.raises(ProviderLimitReached):
+        p.complete("s", "u")
+    monkeypatch.setenv("FAKE_MODE", "login")
+    with pytest.raises(ProviderUnavailable) as err:
+        p.complete("s", "u")
+    assert not isinstance(err.value, ProviderLimitReached) and "codex login" in str(err.value)
+
+
+def test_codex_not_installed(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.delenv("BT_CODEX_PATH", raising=False)
+    monkeypatch.setenv("APPDATA", "/khong-co")
+    monkeypatch.setattr("os.path.isfile", lambda p: False)
+    with pytest.raises(ProviderUnavailable):
+        CodexProvider()
+
+
+def test_codex_not_logged_in_fails_fast(fake_codex, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "logged_out")
+    with pytest.raises(ProviderUnavailable, match="codex login"):
+        CodexProvider(executable=fake_codex)

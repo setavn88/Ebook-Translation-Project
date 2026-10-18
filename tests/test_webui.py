@@ -41,7 +41,7 @@ def test_index_embeds_token_and_api_requires_it(server):
     assert call("/api/state", token=False)[0] == 403
     status, state = call("/api/state")
     assert status == 200 and {g["key"] for g in state["genres"]} >= {"comic", "fantasy"}
-    assert set(state["providers"]) == {"claude-code", "claude", "deepseek", "openai"}
+    assert set(state["providers"]) == {"claude-code", "codex", "claude", "deepseek", "openai"}
 
 
 def test_upload_files_and_text_editing(server):
@@ -80,6 +80,9 @@ def test_build_job_argv(server):
     assert outputs == ["book.vi.epub.preview.md", "discworld.bible.json"]
 
     assert "--khong-cho" not in argv
+    _, argv, _ = app.build_job({"action": "preview", "book": "book.epub", "providers": ["codex", "deepseek"],
+                                "editors": ["claude-code", "bad"]})
+    assert "--providers=codex,deepseek" in argv and "--bien-tap-bang=claude-code" in argv
     _, argv, _ = app.build_job({"action": "translate", "book": "book.epub", "wait": False})
     assert "--khong-cho" in argv
     _, argv, _ = app.build_job({"action": "translate", "book": "book.epub", "wait": True, "wait_hours": "48"})

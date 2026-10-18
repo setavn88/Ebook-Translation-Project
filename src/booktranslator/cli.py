@@ -56,7 +56,7 @@ def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--providers", default="claude",
         help="Nhà cung cấp API theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
-             "Vd: claude-code (dùng gói Claude Pro/Max, không tốn tiền API), claude,deepseek, "
+             "Vd: claude-code (gói Claude Pro/Max), codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
              "deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
     )
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
@@ -96,6 +96,9 @@ def _add_translate_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--yeu-cau", "--note", dest="note", default="", help="Yêu cầu riêng cho bản dịch, ưu tiên cao nhất")
     p.add_argument("--so-tay", "--bible", dest="bible", type=Path, help="File sổ tay truyện (mặc định: <file kết quả>.bible.json)")
     p.add_argument("--polish", dest="polish", action="store_true", default=None, help="Bật bước biên tập (mặc định theo --muc)")
+    p.add_argument("--bien-tap-bang", "--editor-providers", dest="editor_providers",
+                   help="AI làm bước biên tập, khác với người dịch nháp (cùng cú pháp --providers). "
+                        "Vd: --providers codex --bien-tap-bang claude-code: Codex dịch, Claude biên tập")
     p.add_argument("--no-polish", dest="polish", action="store_false", help="Tắt bước biên tập (rẻ hơn ~một nửa)")
     p.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
 
@@ -222,7 +225,7 @@ def _effort(args, genre_effort: str) -> str:
 
 
 def _chains(args):
-    """(chuỗi dịch, chuỗi phân tích). Mức --muc chỉ chọn model Claude khi người dùng không tự chọn."""
+    """(chuỗi dịch, chuỗi phân tích, chuỗi biên tập). Mức --muc chỉ chọn model Claude khi người dùng không tự chọn."""
     preset = PRESETS[getattr(args, "muc", "can-bang")]
     spec = parse_spec(args.providers)
     translate_spec = list(spec)
@@ -235,7 +238,10 @@ def _chains(args):
     )
     if analysis.id == llm.id:
         analysis = llm
-    return llm, analysis
+    editor = llm
+    if editor_spec := getattr(args, "editor_providers", None):
+        editor = build_chain(editor_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
+    return llm, analysis, editor
 
 
 def _paths(args) -> tuple[Path, Path, Path]:
@@ -254,7 +260,7 @@ def _learn(args, progress) -> int:
     if not args.ban_dich.exists() or (args.ban_goc and not args.ban_goc.exists()):
         _err("Không tìm thấy file sách tham chiếu")
         return 2
-    llm, _ = _chains(args)
+    llm, _, _ = _chains(args)
     translated = load_document(args.ban_dich)
     original = load_document(args.ban_goc) if args.ban_goc else None
     name = args.ten or f"Phong cách học từ {args.ban_dich.stem}"
@@ -289,16 +295,17 @@ def _run(args, progress) -> int:
         brief=args.brief.read_text(encoding="utf-8") if args.brief else "",
         polish=preset["polish"] if polish is None else polish,
     )
-    llm, analysis_llm = _chains(args)
+    llm, analysis_llm, editor_llm = _chains(args)
     output, bible_path, cache_path = _paths(args)
     doc = load_document(args.input, args.chunk_chars)
     bible = StoryBible.load(bible_path)
     bible.import_glossary(_load_glossary(args.glossary))
     cache = TranslationCache(cache_path, load=not getattr(args, "fresh", False))
-    translator = Translator(config, llm, genre, style, bible, cache, analysis_llm)
+    translator = Translator(config, llm, genre, style, bible, cache, analysis_llm, editor_llm)
     _err(
         f"Thể loại: {genre.name} · Phong cách: {style.name}\n"
-        f"Dịch: {llm.active.id} (effort {config.effort}, biên tập: {'có' if config.polish else 'không'}) · "
+        f"Dịch: {llm.active.id} (effort {config.effort}) · "
+        f"Biên tập: {editor_llm.active.id if config.polish else 'không'} · "
         f"Phân tích: {analysis_llm.active.id} · {len(doc.sections)} chương"
     )
 

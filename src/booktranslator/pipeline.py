@@ -143,7 +143,8 @@ def preview_document(translator: Translator, doc: Document, section_number: int 
         "",
         f"- Thể loại: {g.name}",
         f"- Phong cách: {v.name}",
-        f"- Model: {translator.llm.active.id} · effort: {translator.config.effort}",
+        f"- Người dịch: {translator.llm.active.id} · Người biên tập: {translator.editor_llm.active.id}"
+        f" · effort: {translator.config.effort}",
         "",
     ]
     names = translator.bible.entities_in(section.plain_text(), contains)

@@ -213,10 +213,12 @@ class Translator:
         bible: StoryBible | None = None,
         cache: TranslationCache | None = None,
         analysis_llm: ProviderChain | None = None,
+        editor_llm: ProviderChain | None = None,
     ):
         self.config = config
-        self.llm = llm
+        self.llm = llm  # người dịch nháp
         self.analysis_llm = analysis_llm or llm
+        self.editor_llm = editor_llm or llm  # người biên tập (có thể là AI khác, vd. Codex dịch, Claude biên tập)
         self.genre = genre or BUILTIN_GENRES["general"]
         self.style = style or BUILTIN_STYLES["natural"]
         self.bible = bible if bible is not None else StoryBible()
@@ -230,10 +232,13 @@ class Translator:
 
     def fork(self, bible: StoryBible) -> "Translator":
         """Bản sao dùng chung API, cache và cấu hình nhưng ghi vào một sổ tay khác."""
-        return Translator(self.config, self.llm, self.genre, self.style, bible, self.cache, self.analysis_llm)
+        return Translator(self.config, self.llm, self.genre, self.style, bible, self.cache, self.analysis_llm, self.editor_llm)
 
     def usage_report(self) -> str:
-        chains = [self.llm] if self.analysis_llm is self.llm else [self.analysis_llm, self.llm]
+        chains = []
+        for chain in (self.analysis_llm, self.llm, self.editor_llm):
+            if all(chain is not c for c in chains):
+                chains.append(chain)
         return "\n".join(c.usage_report() for c in chains)
 
     def _complete(self, llm: ProviderChain, system: str, user: str, what: str, **kw):
@@ -468,14 +473,14 @@ class Translator:
         order: list[str] | None = None,
     ) -> str:
         """Bước biên tập: đối chiếu bản gốc, viết lại bản nháp cho hay và tự nhiên hơn."""
-        key = TranslationCache.make_key("polish", self._cache_key(chunk, kind), draft)
+        key = TranslationCache.make_key("polish", self.editor_llm.id, self._cache_key(chunk, kind), draft)
         cached = self.cache.get(key)
         if cached is not None:
             return cached
         system = build_editor_rules(self.config, self.genre, kind, self.style)
         user = self._build_user_message(chunk, context, section_id, order, None, draft=draft)
         try:
-            result = self._complete(self.llm, system, user, "biên tập đoạn này", effort=self.config.effort)
+            result = self._complete(self.editor_llm, system, user, "biên tập đoạn này", effort=self.config.effort)
         except TranslationError as e:
             log.warning("Bỏ qua bước biên tập cho đoạn này: %s", e)
             return draft

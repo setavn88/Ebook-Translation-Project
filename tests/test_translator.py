@@ -177,3 +177,15 @@ def test_parse_json_tolerates_surrounding_text():
     assert parse_json('```json\n{"a": 2}\n```') == {"a": 2}
     with pytest.raises(ValueError):
         parse_json("không có json")
+
+
+def test_separate_editor_chain():
+    from fakes import FakeProvider
+    from booktranslator.providers import ProviderChain
+
+    translator_ai = FakeProvider(model="codex")
+    editor_ai = FakeProvider(model="claude")
+    t = Translator(TranslatorConfig(polish=True), ProviderChain([translator_ai]), editor_llm=ProviderChain([editor_ai]))
+    assert t.translate_chunk("hello") == "HELLO"
+    assert len(translator_ai.calls) == 1 and "<draft>" not in translator_ai.calls[0]["user"]
+    assert len(editor_ai.calls) == 1 and "<draft>" in editor_ai.calls[0]["user"]

@@ -25,13 +25,14 @@ from urllib.parse import parse_qs, quote, urlparse
 from .cli import PRESETS
 from .document import SUPPORTED, default_output_path
 from .genres import BUILTIN as GENRES
-from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, check_claude_code, find_claude
+from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, CODEX_PATH_ENV, check_claude_code, check_codex, find_claude, find_codex
 from .styles import BUILTIN as STYLES
 
 HTML_FILE = Path(__file__).with_name("webui.html")
 EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 TEXT_SUFFIXES = (".md", ".json", ".txt")
 MAX_TEXT_BYTES = 5 * 1024 * 1024
+VALID_PROVIDERS = ("claude-code", "codex", "claude", "deepseek", "openai")
 
 
 def _safe_name(name: str) -> str:
@@ -205,6 +206,7 @@ class App:
             has_openai_lib = False
         return {
             "claude-code": bool(self._claude_exe()),
+            "codex": bool(find_codex()),
             "claude": has_key("claude"),
             "deepseek": has_key("deepseek") and has_openai_lib,
             "openai": has_key("openai") and has_openai_lib,
@@ -220,6 +222,10 @@ class App:
             os.environ[CLAUDE_PATH_ENV] = self.claude_path
         ok, message = check_claude_code()
         return {"ok": ok, "message": message, "path": self._claude_exe() or ""}
+
+    def test_codex(self) -> dict:
+        ok, message = check_codex()
+        return {"ok": ok, "message": message, "path": find_codex() or ""}
 
     def state(self) -> dict:
         return {
@@ -293,6 +299,9 @@ class App:
             outputs.append(self.rel(bible))
         else:
             argv.append(f"--so-tay={bible}")
+            editors = [p for p in opts.get("editors") or [] if p in VALID_PROVIDERS]
+            if editors:
+                argv.append(f"--bien-tap-bang={','.join(editors)}")
             polish = opts.get("polish") or "auto"
             if polish == "on":
                 argv.append("--polish")
@@ -317,7 +326,7 @@ class App:
         args = []
         if (preset := opts.get("muc")) and preset in PRESETS:
             args.append(f"--muc={preset}")
-        providers = [p for p in opts.get("providers") or [] if p in ("claude-code", "claude", "deepseek", "openai")]
+        providers = [p for p in opts.get("providers") or [] if p in VALID_PROVIDERS]
         if providers:
             args.append(f"--providers={','.join(providers)}")
         if model := (opts.get("model") or "").strip():
@@ -347,6 +356,8 @@ class App:
                 env[API_KEY_ENV[name]] = value
         if exe := self._claude_exe():
             env[CLAUDE_PATH_ENV] = exe
+        if exe := find_codex():
+            env[CODEX_PATH_ENV] = exe
         job.proc = subprocess.Popen(
             [sys.executable, "-m", "booktranslator", *argv],
             cwd=self.workspace, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -448,6 +459,8 @@ def make_handler(app: App):
                 return self._json({"providers": app.providers_status(), "path": app._claude_exe() or ""})
             if method == "POST" and path == "/api/test-claude":
                 return self._json(app.test_claude())
+            if method == "POST" and path == "/api/test-codex":
+                return self._json(app.test_codex())
             if method == "POST" and path == "/api/starter":
                 return self._json({"files": app.install_starter()})
             if method == "POST" and path == "/api/upload":

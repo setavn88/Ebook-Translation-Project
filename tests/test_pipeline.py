@@ -268,3 +268,13 @@ def test_cli_writes_progress_file(tmp_path, fake_api):
     assert cli.main(["phan-tich", str(src)]) == 0
     analysis = json.loads((tmp_path / "story.bible.json.progress.json").read_text(encoding="utf-8"))
     assert analysis["finished"] is True and analysis["total"] == 2
+
+
+def test_cli_editor_chain(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(spec) or fake_chain()[0])
+    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(
+        ["dich", "x.epub", "--providers", "codex,deepseek", "--bien-tap-bang", "claude-code"]))
+    assert seen[0] == [("codex", None), ("deepseek", None)] and seen[-1] == "claude-code"
+    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]))
+    assert editor is llm
