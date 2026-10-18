@@ -42,11 +42,13 @@ class Section:
 
     def plain_text(self) -> str:
         text = self.sep.join(self.chunks)
-        if self.kind == "html":
-            text = html_lib.unescape(re.sub(r"<[^>]+>", " ", text))
-            text = re.sub(r"[ \t]+", " ", text)
-            text = re.sub(r"\s*\n\s*", "\n", text)
-        return text.strip()
+        return html_to_text(text) if self.kind == "html" else text.strip()
+
+
+def html_to_text(html: str) -> str:
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", html))
+    text = re.sub(r"[ \t]+", " ", text)
+    return re.sub(r"\s*\n\s*", "\n", text).strip()
 
 
 @dataclass

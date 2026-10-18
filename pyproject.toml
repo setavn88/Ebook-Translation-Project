@@ -5,13 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "booktranslator"
 version = "0.1.0"
-description = "Dịch sách (TXT, Markdown, EPUB) bằng Claude, có bảng thuật ngữ và lưu tiến độ để chạy tiếp"
+description = "Dịch sách bằng AI: nhất quán tên riêng, dịch có chiều sâu, theo phong cách dịch giả; hỗ trợ Claude, DeepSeek, ChatGPT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["anthropic>=1.15"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+openai = ["openai>=2"]
 
 [project.scripts]
 booktranslator = "booktranslator.cli:main"

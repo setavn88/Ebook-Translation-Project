@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .consistency import Issue, check_chunk, format_report
-from .document import Document, write_document
-from .translator import Translator
+from .consistency import Issue, check_chunk, contains, format_report
+from .document import Document, html_to_text, write_document
+from .translator import CONTEXT_TAIL_CHARS, Translator
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +39,7 @@ def analyze_document(translator: Translator, doc: Document, workers: int = 4, pr
 
     def work(section):
         # Mỗi chương ghi vào một sổ tay tạm; gộp sau theo thứ tự đọc.
-        t = Translator(translator.config, translator.genre, bible.snapshot(), translator.client, translator.cache)
-        t.usage = translator.usage
+        t = translator.fork(bible.snapshot())
         t.analyze_section(section)
         staging[section.id] = t
         if progress:
@@ -111,10 +110,54 @@ def _check_and_fix(translator: Translator, doc: Document, translations, fix: boo
         )
         context = None
         if idx > 0:
-            context = (section.chunks[idx - 1][-1500:], translations[sid][idx - 1][-1500:])
+            context = (section.chunks[idx - 1][-CONTEXT_TAIL_CHARS:], translations[sid][idx - 1][-CONTEXT_TAIL_CHARS:])
         translations[sid][idx] = translator.translate_chunk(
             section.chunks[idx], section.kind, context, sid, doc.order, reminder=reminder
         )
         if progress:
             progress("Sửa nhất quán", section.title, n, len(to_fix))
     return (check_all() if to_fix else issues), len(to_fix)
+
+
+def preview_document(translator: Translator, doc: Document, section_number: int | None = None, chunks: int = 2) -> str:
+    """Dịch thử vài đoạn đầu của một chương; trả về Markdown so sánh gốc / nháp / biên tập.
+
+    Chỉ phân tích đúng chương được dịch thử nên rẻ; bản nháp được cache nên lần
+    `translate` sau với cùng tùy chọn sẽ không phải trả tiền dịch lại các đoạn này.
+    """
+    if not doc.sections:
+        raise ValueError("Sách không có nội dung để dịch thử")
+    if section_number:
+        if not 1 <= section_number <= len(doc.sections):
+            raise ValueError(f"--section phải trong khoảng 1..{len(doc.sections)}")
+        section = doc.sections[section_number - 1]
+    else:
+        section = next((s for s in doc.sections if len(s.plain_text()) >= 1000), doc.sections[0])
+    if section.id not in translator.bible.sections:
+        translator.analyze_section(section)
+
+    show = html_to_text if section.kind == "html" else str.strip
+    g, v = translator.genre, translator.style
+    lines = [
+        f"# Dịch thử: {section.title}",
+        "",
+        f"- Thể loại: {g.name}",
+        f"- Phong cách: {v.name}",
+        f"- Model: {translator.llm.active.id} · effort: {translator.config.effort}",
+        "",
+    ]
+    names = translator.bible.entities_in(section.plain_text(), contains)
+    if names:
+        lines += ["## Tên riêng trong chương (từ sổ tay — sửa trong file .bible.json nếu chưa ưng)", ""]
+        lines += [f"- {e.source} → **{e.target}** ({e.type})" for e in sorted(names, key=lambda e: e.source)]
+        lines.append("")
+
+    context = None
+    for i, chunk in enumerate(section.chunks[:chunks], start=1):
+        draft = translator.draft_chunk(chunk, section.kind, context, section.id, doc.order)
+        final = translator.polish_chunk(chunk, draft, section.kind, context, section.id, doc.order) if translator.config.polish else draft
+        context = (chunk[-CONTEXT_TAIL_CHARS:], final[-CONTEXT_TAIL_CHARS:])
+        lines += [f"## Đoạn {i}", "", "### Bản gốc", "", show(chunk), "", "### Bản nháp", "", show(draft), ""]
+        if translator.config.polish:
+            lines += ["### Bản biên tập (bản cuối)", "", show(final), ""]
+    return "\n".join(lines)

@@ -161,13 +161,39 @@ class StoryBible:
 
     # ---- prompt --------------------------------------------------------
 
-    def prompt_block(self, track_addressing: bool = True) -> str:
+    def passage_block(self, text: str, contains, track_addressing: bool = True) -> str:
+        """Phần sổ tay liên quan tới một đoạn: tên có trong đoạn + xưng hô giữa các nhân vật đó.
+
+        Gửi phần liên quan thay vì cả sổ tay giúp số token không phình ra khi sổ tay
+        của cả một bộ truyện lên tới hàng trăm mục.
+        """
         with self._lock:
-            if not self.entities and not self.addressing:
+            entities = self.entities_in(text, contains)
+            present = {_norm(n) for e in entities for n in e.names()}
+            pairs = [a for a in self.addressing if _norm(a.speaker) in present or _norm(a.listener) in present]
+            if not entities and not pairs:
+                return ""
+            return self.prompt_block(track_addressing, entities, pairs)
+
+    def names_index(self) -> str:
+        """Danh sách gọn mọi tên đã có (dùng khi phân tích chương để tái sử dụng bản dịch)."""
+        with self._lock:
+            return "\n".join(f"- {e.source} → {e.target}" for e in sorted(self.entities.values(), key=lambda e: _norm(e.source)))
+
+    def prompt_block(
+        self,
+        track_addressing: bool = True,
+        entities: list[Entity] | None = None,
+        addressing: list[Addressing] | None = None,
+    ) -> str:
+        with self._lock:
+            entities = list(self.entities.values()) if entities is None else entities
+            addressing = self.addressing if addressing is None else addressing
+            if not entities and not addressing:
                 return "SỔ TAY TRUYỆN: (chưa có mục nào)"
             lines = ["SỔ TAY TRUYỆN — bắt buộc dùng đúng các bản dịch dưới đây, không dùng biến thể khác:"]
             by_type: dict[str, list[Entity]] = {}
-            for e in self.entities.values():
+            for e in entities:
                 by_type.setdefault(e.type or "term", []).append(e)
             for type_ in sorted(by_type):
                 lines.append(f"\n[{type_}]")
@@ -181,9 +207,9 @@ class StoryBible:
                         extra.append(e.note)
                     suffix = f" ({'; '.join(extra)})" if extra else ""
                     lines.append(f"- {e.source} → {e.target}{suffix}")
-            if track_addressing and self.addressing:
+            if track_addressing and addressing:
                 lines.append("\n[xưng hô] (người nói → người nghe: xưng / gọi — hoàn cảnh)")
-                for a in self.addressing:
+                for a in addressing:
                     ctx = f" — {a.context}" if a.context else ""
                     lines.append(f"- {a.speaker} → {a.listener}: xưng \"{a.self_term}\" / gọi \"{a.other_term}\"{ctx}")
             return "\n".join(lines)

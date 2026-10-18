@@ -1,53 +1,15 @@
 # Ebook Translation Project
 
-Công cụ dòng lệnh dịch sách bằng AI (Claude của Anthropic), có **chế độ dịch theo thể loại** (Sci-fi, Fantasy, Romance, Tiên hiệp, Trinh thám...) và **sổ tay truyện** để tên nhân vật, tên riêng, xưng hô và diễn biến nhất quán từ trang đầu đến trang cuối. Hỗ trợ **TXT**, **Markdown** và **EPUB**, giữ nguyên định dạng, lưu tiến độ để chạy tiếp khi bị gián đoạn.
+Công cụ dòng lệnh dịch sách tiếng Anh sang tiếng Việt bằng AI để đọc cho mục đích cá nhân. Đích nhắm là **văn dịch hay, lưu loát như dịch giả giỏi**. Dự án lấy bộ **Discworld** (Terry Pratchett) làm mục tiêu đầu tiên.
 
-## Chế độ dịch theo thể loại
+Bốn mục tiêu và cách công cụ đáp ứng:
 
-```bash
-booktranslator genres
-```
-
-| `--genre` | Thể loại | Cách dịch | Theo dõi trong sổ tay | Effort mặc định |
-|---|---|---|---|---|
-| `general` | Tổng quát | Rõ ràng, chính xác | nhân vật, địa danh, tổ chức, thuật ngữ | medium |
-| `scifi` | Khoa học viễn tưởng | Sắc, mạch lạc; thuật ngữ khoa học chuẩn (wormhole → lỗ sâu); thuật ngữ tác giả tự đặt được dịch nhất quán; giữ số liệu, đơn vị | nhân vật, AI, tàu, hành tinh, công nghệ, chủng loài, đơn vị | medium |
-| `fantasy` | Giả tưởng / Kỳ ảo | Giàu hình ảnh, hơi cổ điển; xưng hô theo địa vị; danh hiệu dịch nghĩa (Kingslayer → Kẻ Giết Vua); tên bịa giữ nguyên | nhân vật, chủng tộc, sinh vật, vương quốc, phe phái, phép thuật, cổ vật, danh hiệu | medium |
-| `romance` | Lãng mạn / Ngôn tình | Mềm mại, giàu cảm xúc; **xưng hô của từng cặp đổi theo giai đoạn quan hệ**; tên gọi yêu thống nhất | nhân vật, biệt danh, quan hệ, xưng hô, các mốc tình cảm | medium |
-| `wuxia` | Tiên hiệp / Kiếm hiệp / Huyền huyễn | Cổ phong; **Hán Việt** cho tên người, môn phái, công pháp, cảnh giới; xưng hô cổ trang (tại hạ, sư phụ...) | nhân vật, môn phái, công pháp, cảnh giới (đúng thứ tự), pháp bảo, ngoại hiệu | high |
-| `mystery` | Trinh thám / Ly kỳ | Chính xác tuyệt đối chi tiết (manh mối); giữ sự mơ hồ có chủ đích; không tiết lộ trước | nhân vật, bí danh, vật chứng, dòng thời gian, chứng cứ ngoại phạm | high |
-| `horror` | Kinh dị | Ưu tiên không khí, nhịp; giữ mức độ ghê rợn | nhân vật, thực thể siêu nhiên, nghi lễ, đồ vật bị nguyền | medium |
-| `literary` | Văn học / Kinh điển | Trung thành tối đa văn phong tác giả; tước hiệu quý tộc thống nhất | nhân vật, tước hiệu, quan hệ, motif | high |
-
-Mỗi thể loại quyết định 4 thứ: **văn phong**, **quy tắc đặt/giữ tên riêng**, **những gì cần theo dõi khi đọc trước sách**, và **effort mặc định** (effort cao hơn thì dịch kỹ hơn, tốn token hơn; ghi đè bằng `--effort`).
-
-### Tự định nghĩa thể loại
-
-Tạo file JSON kế thừa một thể loại có sẵn rồi ghi đè các trường cần đổi. Xem ví dụ [`examples/genre-cyberpunk.json`](examples/genre-cyberpunk.json):
-
-```bash
-booktranslator translate book.epub --genre-file examples/genre-cyberpunk.json
-```
-
-Các trường: `base`, `key`, `name`, `description`, `style`, `naming`, `entity_types`, `analysis_focus`, `effort`, `track_addressing`.
-
-## Cách giữ nhất quán: quy trình 3 bước
-
-```
- ① Phân tích                ② Dịch                          ③ Kiểm tra & sửa
- đọc trước từng chương  →   mỗi đoạn được gửi kèm:      →   đối chiếu từng đoạn với sổ tay;
- lập SỔ TAY TRUYỆN:         • sổ tay (tên + xưng hô)         đoạn nào còn sót tên gốc thì
- • tên riêng → bản dịch     • tóm tắt + sự kiện các          tự dịch lại với lời nhắc;
- • tên khác (alias)           chương trước                   ghi báo cáo .consistency.md
- • xưng hô từng cặp         • tóm tắt chương hiện tại
- • tóm tắt, sự kiện         • tên có trong đoạn này
-   then chốt mỗi chương     • đuôi đoạn trước + bản dịch
-                            tên mới gặp → bổ sung sổ tay
-```
-
-- **Một tên chỉ có một bản dịch.** Khi một tên đã có trong sổ tay, bản dịch của nó không bao giờ bị thay tự động. Thông tin mới chỉ được bổ sung (tên khác, ghi chú). Muốn đổi tên thì sửa file sổ tay.
-- **Kết quả không phụ thuộc thứ tự chạy.** Các chương được phân tích song song, nhưng khi gộp thì chương đứng trước trong sách luôn thắng.
-- **Diễn biến khớp nhau.** Mô hình biết các sự kiện đã xảy ra (ai đã chết, bí mật nào đã lộ, quan hệ đang ở giai đoạn nào), nên không dịch sai đại từ hay xưng hô.
+| Mục tiêu | Cách làm |
+|---|---|
+| **1. Nhất quán** thế giới, tên nhân vật, địa danh, sự kiện | **Sổ tay truyện** (file JSON): đọc trước cả sách để lập danh sách tên riêng, cách xưng hô, tóm tắt và sự kiện từng chương. Mỗi tên chỉ có một bản dịch. Có bước kiểm tra sau khi dịch. Dùng chung một sổ tay cho cả bộ truyện. |
+| **2. Dịch có chiều sâu**, không word-by-word | Dịch theo **thể loại** (Discworld: `comic`) với danh sách lỗi "văn dịch" cần tránh, cộng **bước biên tập**: một lượt thứ hai đối chiếu bản gốc và nhuận sắc bản nháp. |
+| **3. Theo phong cách một dịch giả** (vd. Lý Lan dịch Harry Potter) | **Hồ sơ phong cách dịch**: có sẵn mô tả kiểu Lý Lan. Tốt nhất là **tự học từ sách tham chiếu** bạn đưa vào (`hoc-phong-cach`). |
+| **4. Ít token nhất; đổi được API** khi Claude hết quota | Prompt cố định để trúng cache, chỉ gửi phần sổ tay liên quan, lưu lại mọi kết quả, có 3 **mức chi phí**, bước phân tích dùng model rẻ hơn. Hỗ trợ **Claude, DeepSeek, ChatGPT**; lỗi hoặc hết quota thì tự chuyển sang API kế tiếp. |
 
 ## Cài đặt
 
@@ -56,105 +18,205 @@ Yêu cầu Python ≥ 3.10.
 ```bash
 git clone https://github.com/setavn88/Ebook-Translation-Project.git
 cd Ebook-Translation-Project
-pip install -e .
-export ANTHROPIC_API_KEY="sk-ant-..."   # lấy tại https://platform.claude.com
+pip install -e '.[openai]'     # bỏ [openai] nếu chỉ dùng Claude
+
+export ANTHROPIC_API_KEY="sk-ant-..."   # Claude: https://platform.claude.com
+export DEEPSEEK_API_KEY="sk-..."        # tùy chọn: https://platform.deepseek.com
+export OPENAI_API_KEY="sk-..."          # tùy chọn: https://platform.openai.com
 ```
 
-## Sử dụng
-
-**Cách nhanh**: dịch luôn, sổ tay được lập tự động:
+## Quy trình cho Discworld
 
 ```bash
-booktranslator translate book.epub --genre fantasy
-# → book.vi.epub, book.vi.epub.bible.json (sổ tay), book.vi.epub.consistency.md (báo cáo)
+# 0. (Một lần) Học phong cách Lý Lan từ sách tham chiếu bạn có
+booktranslator hoc-phong-cach "HP1 - Lý Lan.epub" --ban-goc "HP1 - English.epub" \
+    --ten "Lý Lan - Harry Potter" -o lylan-hp.json
+
+# 1. Dịch thử 2 đoạn, xem giọng văn và các tên được Việt hóa
+booktranslator dich-thu "Guards! Guards!.epub" -g comic --phong-cach-file lylan-hp.json
+
+# 2. Lập sổ tay cho cả cuốn, mở file JSON sửa tên cho ưng ý
+booktranslator phan-tich "Guards! Guards!.epub" -g comic --phong-cach-file lylan-hp.json -o discworld.bible.json
+
+# 3. Dịch cả cuốn. Các cuốn Discworld sau dùng lại discworld.bible.json để tên thống nhất cả bộ
+booktranslator dich "Guards! Guards!.epub" -g comic --phong-cach-file lylan-hp.json --so-tay discworld.bible.json
 ```
 
-**Cách kỹ (khuyên dùng cho sách dài)**: lập sổ tay → duyệt/sửa tên → dịch:
+Kết quả gồm:
+- `Guards! Guards!.vi.epub`: sách đã dịch.
+- `discworld.bible.json`: sổ tay, được bổ sung dần.
+- `….consistency.md`: báo cáo nhất quán.
 
-```bash
-booktranslator analyze book.epub --genre wuxia -o book.bible.json
-#   mở book.bible.json, sửa tên/xưng hô cho đúng ý
-booktranslator translate book.epub --genre wuxia --bible book.bible.json
+Chạy lại cùng lệnh sau khi bị ngắt thì công cụ tiếp tục từ chỗ dừng, không trả tiền lại cho phần đã dịch.
+
+Các lệnh có tên tiếng Anh tương đương: `learn-style`, `preview`, `analyze`, `translate`, `genres`, `styles`.
+
+## 1. Nhất quán: sổ tay truyện
+
+```
+ ① phan-tich                 ② dich                            ③ kiểm tra & sửa
+ đọc trước từng chương  →    mỗi đoạn gửi kèm phần sổ tay  →   đối chiếu từng đoạn với sổ tay;
+ lập SỔ TAY:                 LIÊN QUAN tới đoạn đó:             đoạn còn sót tên gốc thì tự dịch
+ • tên riêng → bản dịch      • tên có mặt + xưng hô của họ      lại với lời nhắc; ghi báo cáo
+ • tên khác (alias)          • tóm tắt + sự kiện chương trước
+ • xưng hô từng cặp          • đuôi đoạn trước + bản dịch
+ • tóm tắt, sự kiện          tên mới gặp → bổ sung sổ tay
 ```
 
-Ví dụ khác:
+- **Một tên chỉ có một bản dịch.** Khi một tên đã có trong sổ tay, bản dịch không bao giờ bị thay tự động. Muốn đổi thì sửa file JSON rồi chạy lại với `--fresh`.
+- **Kết quả không phụ thuộc thứ tự chạy.** Các chương được phân tích song song, nhưng khi gộp thì chương đứng trước trong sách luôn thắng.
+- **Diễn biến khớp nhau.** Mô hình biết ai đã chết, bí mật nào đã lộ, quan hệ đang ở giai đoạn nào.
+- **Cả series dùng chung một sổ tay** (`--so-tay`). Tên như Ankh-Morpork, Đại học Vô Hình, Cái Rương sẽ giống nhau ở mọi cuốn.
 
-```bash
-booktranslator translate novel.md -g romance --style "Nữ chính 17 tuổi, xưng tớ - cậu với bạn bè"
-booktranslator translate sach.txt -g scifi --to English --lang-code en
-booktranslator translate book.epub -g mystery --glossary names.json   # nạp thêm tên có sẵn {"nguồn": "đích"}
-```
-
-### Sổ tay truyện (`*.bible.json`)
+Ví dụ sổ tay:
 
 ```json
 {
   "entities": [
-    {"source": "Aragorn", "target": "Aragorn", "type": "character", "aliases": ["Strider"], "gender": "nam", "note": "người thừa kế ngai vàng"},
-    {"source": "Strider", "target": "Sải Chân Dài", "type": "title", "aliases": [], "gender": "", "note": ""}
+    {"source": "Unseen University", "target": "Đại học Vô Hình", "type": "organization", "aliases": ["UU"], "gender": "", "note": "trường phù thủy"},
+    {"source": "the Luggage", "target": "Cái Rương", "type": "artifact", "aliases": ["Luggage"], "gender": "", "note": "rương gỗ biết đi"}
   ],
   "addressing": [
-    {"speaker": "Frodo", "listener": "Gandalf", "self_term": "cháu", "other_term": "ông", "context": ""}
+    {"speaker": "Rincewind", "listener": "Twoflower", "self_term": "tôi", "other_term": "ông", "context": "mới quen, khó chịu"}
   ],
-  "sections": {
-    "OEBPS/ch01.xhtml": {"title": "Chương 1", "summary": "...", "events": ["Bilbo biến mất trong bữa tiệc"]}
-  }
+  "sections": {"OEBPS/ch01.xhtml": {"title": "Chương 1", "summary": "...", "events": ["..."]}}
 }
 ```
 
-Có thể sửa trực tiếp các mục: `target` (bản dịch), `aliases` (tên gọi khác trong bản gốc), `addressing` (xưng hô), `summary`/`events`. Sau khi sửa sổ tay, chạy lại với `--fresh` để dịch lại các đoạn đã dịch theo tên mới.
+## 2. Dịch có chiều sâu: thể loại + biên tập
 
-### Tùy chọn
+`booktranslator the-loai` liệt kê các thể loại:
+
+| `-g` | Thể loại | Effort mặc định |
+|---|---|---|
+| `comic` | **Giả tưởng hài / châm biếm (Discworld, Hitchhiker's Guide)**: chơi chữ được sáng tác lại bằng tiếng Việt; giọng tỉnh bơ; giữ cú chốt cuối câu; dịch đủ footnote của tác giả; lời Thần Chết giữ IN HOA; tên có nghĩa Việt hóa dí dỏm | high |
+| `fantasy` | Giả tưởng / kỳ ảo | medium |
+| `scifi` | Khoa học viễn tưởng | medium |
+| `romance` | Lãng mạn / ngôn tình (ưu tiên xưng hô theo giai đoạn quan hệ) | medium |
+| `wuxia` | Tiên hiệp / kiếm hiệp (Hán Việt) | high |
+| `mystery` | Trinh thám (giữ chính xác manh mối) | high |
+| `horror`, `literary`, `general` | Kinh dị, văn chương kinh điển, tổng quát | |
+
+Thể loại tự định nghĩa: xem [`examples/genre-cyberpunk.json`](examples/genre-cyberpunk.json), dùng với `--the-loai-file`.
+
+Khi đích là tiếng Việt, mọi bước đều theo một **danh sách lỗi "văn dịch"** cần tránh: dịch chữ theo trật tự tiếng Anh, "một cách + tính từ", lạm dụng "được/bị", "của anh ấy" thừa, lặp "anh ấy/cô ấy", khung "Đó là… / Có một…", lời thoại cứng, "said" lúc nào cũng thành "nói"…
+
+**Bước biên tập** (bật ở mức `can-bang` và `cao-cap`): lượt thứ hai đọc *bản gốc + bản nháp*, sửa chỗ hiểu sai, rồi nhuận sắc cho câu đùa buồn cười hơn, giọng nhân vật rõ hơn. Tên riêng giữ đúng sổ tay.
+
+## 3. Phong cách dịch giả
+
+`booktranslator phong-cach` liệt kê phong cách có sẵn: `natural` (mặc định, trung tính) và `lylan` (mô tả sẵn đặc điểm lối dịch Harry Potter của Lý Lan: Việt hóa tên có nghĩa kiểu Hẻm Xéo, Giám ngục; khẩu ngữ sinh động; bạn bè xưng "tớ – bồ"; thầy cô gọi "trò"). Phong cách và thể loại kết hợp tự do.
+
+### Học phong cách từ sách tham chiếu (khuyên dùng)
+
+```bash
+booktranslator hoc-phong-cach "HP1 - Lý Lan.epub" --ban-goc "HP1 - English.epub" --ten "Lý Lan - Harry Potter" -o lylan-hp.json
+```
+
+- Công cụ đọc khoảng 4 trích đoạn rải đều trong sách (`--so-trich-doan`), không đọc cả cuốn, nên chỉ tốn vài lần gọi API.
+- **Có cả bản gốc tiếng Anh**: tìm các cặp câu gốc ↔ dịch tiêu biểu (lời thoại, câu đùa, thành ngữ được Việt hóa) và cách Việt hóa tên (Diagon Alley → Hẻm Xéo…).
+- **Chỉ có bản tiếng Việt**: vẫn học được nhịp văn, cách xưng hô, giọng kể. Đoạn mẫu khi đó chỉ có bản tiếng Việt.
+- Kết quả là file JSON gồm mô tả phong cách, quy luật đặt tên, quy luật xưng hô và các đoạn mẫu. **Bạn đọc lại và sửa được.** Dùng bằng `--phong-cach-file lylan-hp.json`.
+- File này chứa trích đoạn sách của bạn, **chỉ dùng cá nhân**, đừng đưa lên repo công khai.
+
+Tự viết hồ sơ phong cách cũng được: xem [`examples/phong-cach-mau.json`](examples/phong-cach-mau.json). File kế thừa `base`, thêm `examples`, có thể ghi đè `principles`/`naming`/`addressing`.
+
+## 4. Tiết kiệm token và đổi API
+
+### Mức chất lượng / chi phí (`--muc`)
+
+| `--muc` | Model dịch (Claude) | Model phân tích | Biên tập | Effort |
+|---|---|---|---|---|
+| `tiet-kiem` | `claude-sonnet-5-5` | `claude-haiku-5-5` | không | tối đa `medium` |
+| `can-bang` *(mặc định)* | `claude-opus-5-5` | `claude-sonnet-5-5` | có | theo thể loại |
+| `cao-cap` | `claude-opus-5-5` | `claude-opus-5-5` | có | tối thiểu `high` |
+
+- `--model` ghi đè model dịch, ví dụ `--model claude-fable-5-1`: model mạnh nhất, giá khoảng 2,5 lần Opus. Nên so hai bản bằng `dich-thu` trước.
+- `--effort`, `--polish`, `--no-polish` ghi đè từng phần của mức đã chọn.
+
+### Những cách tiết kiệm có sẵn
+
+- **Prompt cache.** Prompt hệ thống (quy tắc thể loại, phong cách, đoạn mẫu) giữ nguyên cho cả cuốn, nên các request sau chỉ tính khoảng 10% giá cho phần đó.
+- **Chỉ gửi phần sổ tay liên quan** tới từng đoạn, thay vì cả sổ tay (vốn lên tới hàng trăm mục với cả bộ Discworld).
+- **Phân tích** dùng model rẻ hơn với effort thấp, và không gửi kèm đoạn mẫu.
+- **Lưu mọi kết quả.** Chạy lại, `dich-thu` rồi `dich`, hay bị ngắt giữa chừng đều không tốn tiền lại cho phần đã làm.
+- **`dich-thu` trước.** Lệnh này in số token đã dùng cho vài đoạn; nhân lên theo số đoạn của sách để ước lượng chi phí cả cuốn trước khi chạy.
+
+### Nhiều nhà cung cấp API (`--providers`)
+
+```bash
+# Claude trước; Claude hết quota, rate limit hay lỗi thì tự chuyển sang DeepSeek, rồi ChatGPT
+booktranslator dich book.epub -g comic --providers claude,deepseek,openai
+
+# Chỉ dùng DeepSeek (rẻ nhất), hoặc chỉ định model
+booktranslator dich book.epub -g comic --providers deepseek
+booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,openai:gpt-5
+```
+
+| Tên | Biến môi trường | Model mặc định |
+|---|---|---|
+| `claude` | `ANTHROPIC_API_KEY` | theo `--muc` |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `openai` (hay `chatgpt`) | `OPENAI_API_KEY` | `gpt-5` |
+
+- Nhà cung cấp chưa có key thì bị bỏ qua.
+- **Hết quota / rate limit / mất mạng**: chuyển hẳn sang nhà cung cấp kế tiếp.
+- **Một đoạn bị từ chối**: chỉ đoạn đó được thử ở nhà cung cấp kế tiếp.
+- Phần đã dịch vẫn giữ nguyên, sổ tay vẫn giữ tên nhất quán dù đổi API giữa chừng. Giọng văn giữa hai model có thể hơi khác, nên với một cuốn sách nên ưu tiên dịch trọn bằng một model.
+- Tên model của DeepSeek và OpenAI thay đổi theo thời gian; kiểm tra trang của họ và chỉ định bằng `tên:model` nếu cần.
+
+## Tất cả tùy chọn
 
 | Tùy chọn | Mặc định | Ý nghĩa |
 |---|---|---|
-| `-g, --genre` / `--genre-file` | `general` | Chế độ dịch theo thể loại |
-| `--to` / `--from` | `Tiếng Việt` / tự nhận diện | Ngôn ngữ đích / nguồn |
-| `--style` | | Yêu cầu riêng, ưu tiên hơn quy tắc thể loại |
-| `--bible FILE` | `<kết quả>.bible.json` | File sổ tay truyện |
+| `-g, --the-loai` / `--the-loai-file` | `general` | Thể loại |
+| `-p, --phong-cach` / `--phong-cach-file` | `natural` | Phong cách dịch |
+| `--muc` | `can-bang` | Mức chất lượng/chi phí |
+| `--providers` | `claude` | Nhà cung cấp API theo thứ tự ưu tiên |
+| `--model`, `--effort` | theo `--muc` | Ghi đè model dịch / mức suy nghĩ |
+| `--polish` / `--no-polish` | theo `--muc` | Bật/tắt bước biên tập |
+| `--so-tay FILE` | `<kết quả>.bible.json` | File sổ tay truyện |
 | `--glossary FILE` | | Nạp thêm tên `{"nguồn": "đích"}` vào sổ tay |
-| `--no-analyze` | | Bỏ bước đọc trước (rẻ hơn ~ chi phí input 1 lần đọc sách, nhưng kém nhất quán; nên kèm `--workers 1`) |
-| `--no-fix` | | Chỉ báo cáo lỗi nhất quán, không tự dịch lại |
-| `--fresh` | | Bỏ qua bản dịch đã lưu |
-| `--effort` | theo thể loại | `low` → `max` |
-| `--model` | `claude-opus-5-5` | Model Claude |
-| `--lang-code` | `vi` | Mã ngôn ngữ ghi vào EPUB và tên file |
-| `--chunk-chars` | `6000` | Kích thước mỗi đoạn gửi đi |
+| `--yeu-cau "..."` | | Yêu cầu riêng, ưu tiên cao nhất |
+| `--no-analyze` | | Bỏ bước đọc trước (rẻ hơn, kém nhất quán; nên kèm `--workers 1`) |
+| `--no-fix` | | Chỉ báo cáo lỗi nhất quán, không tự sửa |
+| `--fresh` | | Bỏ qua kết quả đã lưu |
+| `--to` / `--from` / `--lang-code` | Tiếng Việt / tự nhận / `vi` | Ngôn ngữ |
+| `--chunk-chars` | `6000` | Kích thước mỗi đoạn |
 | `--workers` | `4` | Số chương xử lý song song |
-| `--cache-dir` | `.bt_cache` cạnh file kết quả | Nơi lưu tiến độ |
-| `--no-fallback` | | Tắt fallback phía server (cần khi dùng Bedrock/Vertex/Foundry) |
+| `dich-thu --section N --chunks K` | chương đủ dài đầu tiên, 2 đoạn | Chọn đoạn dịch thử |
 
-Chạy xong, công cụ in số request và token đã dùng. Nên dịch thử một chương trước để ước lượng chi phí cả cuốn. Bước phân tích tốn thêm khoảng một lần đọc toàn bộ sách (chủ yếu là token input).
-
-## Chạy bằng Docker
+## Docker
 
 ```bash
 docker build -t booktranslator .
-docker run --rm -e ANTHROPIC_API_KEY -v "$PWD:/books" booktranslator translate /books/book.epub -g fantasy
+docker run --rm -e ANTHROPIC_API_KEY -e DEEPSEEK_API_KEY -v "$PWD:/books" booktranslator dich /books/book.epub -g comic
 ```
 
 ## Phát triển
 
 ```bash
-pip install -e '.[dev]'
-pytest          # test dùng client giả lập, không cần API key
+pip install -e '.[dev,openai]'
+pytest          # test dùng API giả lập, không cần key
 ```
 
 ```
 src/booktranslator/
-  genres.py       # 8 chế độ dịch theo thể loại + nạp thể loại tự định nghĩa
-  bible.py        # sổ tay truyện: tên riêng, alias, xưng hô, tóm tắt/sự kiện từng chương
-  document.py     # đọc TXT/Markdown/EPUB thành chương → đoạn; ghi lại đúng định dạng
-  translator.py   # prompt theo thể loại, phân tích chương (structured output), dịch đoạn
-  consistency.py  # kiểm tra tên gốc còn sót / bản dịch tên bị thiếu
-  pipeline.py     # điều phối: phân tích → dịch → kiểm tra & sửa
-  chunker.py      # chia văn bản/HTML theo ranh giới đoạn
-  cache.py        # lưu tiến độ dạng JSON lines
-  cli.py          # lệnh genres / analyze / translate
+  providers.py    # Claude / DeepSeek / ChatGPT + chuỗi dự phòng
+  genres.py       # thể loại (văn phong, quy tắc tên, thứ cần theo dõi)
+  styles.py       # phong cách dịch giả + nạp hồ sơ phong cách
+  stylelearn.py   # học phong cách từ sách tham chiếu
+  bible.py        # sổ tay truyện: tên, alias, xưng hô, tóm tắt/sự kiện
+  translator.py   # prompt, phân tích chương, dịch nháp, biên tập
+  consistency.py  # kiểm tra tên gốc còn sót
+  pipeline.py     # phân tích → dịch → kiểm tra & sửa; dịch thử
+  document.py     # đọc/ghi TXT, Markdown, EPUB theo chương
+  chunker.py, cache.py, cli.py
 ```
 
 ## Giới hạn hiện tại
 
-- Kiểm tra nhất quán là so khớp chữ: nó bắt chắc chắn lỗi **sót tên gốc**, còn mục "cần xem lại" (không thấy tên đã dịch) thường là do câu dùng đại từ, nên chỉ được báo cáo, không tự sửa. Kiểm tra xưng hô không tự động được, mà dựa vào sổ tay được đưa vào mỗi đoạn.
-- Chưa hỗ trợ PDF/DOCX. Có thể chuyển sang EPUB bằng [Calibre](https://calibre-ebook.com/) (`ebook-convert book.pdf book.epub`) rồi dịch.
-- Tiêu đề trong `<head>` và mục lục `toc.ncx`/`nav` của EPUB chưa được dịch.
+- **Kiểm tra nhất quán** là so khớp chữ. Nó bắt chắc lỗi *sót tên gốc*. Còn chỗ "không thấy tên đã dịch" thường là do câu dùng đại từ, nên chỉ được ghi vào báo cáo. Xưng hô không kiểm tra tự động được, mà dựa vào sổ tay gửi kèm từng đoạn.
+- **Phong cách `lylan` có sẵn** chỉ là mô tả đặc điểm kèm vài câu mẫu tự soạn, nên chỉ *gần giống*. Muốn sát giọng thì học từ sách tham chiếu.
+- **Định dạng:** chưa hỗ trợ PDF/DOCX; có thể chuyển sang EPUB bằng [Calibre](https://calibre-ebook.com/) (`ebook-convert book.pdf book.epub`). Tiêu đề `<head>` và mục lục `toc.ncx`/`nav` chưa được dịch.
+- **Chưa dùng Batch API**, vốn rẻ hơn 50% nhưng phải chờ kết quả. Đây là hướng tiết kiệm tiếp theo.

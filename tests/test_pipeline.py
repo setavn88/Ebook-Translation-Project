@@ -1,16 +1,17 @@
 import json
 import threading
-import time
 import zipfile
 
-from booktranslator import cli, translator as translator_mod
+import pytest
+
+from booktranslator import cli
 from booktranslator.bible import Entity, StoryBible
 from booktranslator.document import load_document, write_document
 from booktranslator.genres import BUILTIN
 from booktranslator.pipeline import analyze_document, translate_document
 from booktranslator.translator import Translator, TranslatorConfig
 
-from fakes import DEFAULT_ANALYSIS, FakeClient, default_responder, fake_translate, make_message, source_of, translation_reply
+from fakes import DEFAULT_ANALYSIS, default_responder, fake_chain, fake_translate, reply, source_of, translation_reply
 
 CONTAINER = """<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -57,8 +58,18 @@ def make_epub(path):
         z.writestr("OEBPS/style.css", "p { margin: 0 }")
 
 
-def make_translator(client=None, genre="general", bible=None):
-    return Translator(TranslatorConfig(), BUILTIN[genre], bible or StoryBible(), client=client or FakeClient())
+def make_translator(responder=None, analyzer=None, bible=None, polish=True):
+    chain, provider = fake_chain(responder, analyzer)
+    t = Translator(TranslatorConfig(polish=polish), chain, BUILTIN["general"], None, bible or StoryBible())
+    return t, provider
+
+
+@pytest.fixture
+def fake_api(monkeypatch):
+    """Thay mọi nhà cung cấp API của CLI bằng một provider giả lập dùng chung."""
+    chain, provider = fake_chain()
+    monkeypatch.setattr(cli, "build_chain", lambda *a, **kw: chain)
+    return provider
 
 
 # ---- document ---------------------------------------------------------
@@ -120,7 +131,7 @@ def test_analysis_merge_is_in_reading_order(tmp_path):
             "entities": [{"source": "Alice", "target": target, "type": "character", "aliases": [], "gender": "", "note": ""}],
         }
 
-    t = make_translator(FakeClient(analyzer=analyzer))
+    t, _ = make_translator(analyzer=analyzer)
     doc = load_document(src)
     analyze_document(t, doc, workers=2)
     assert t.bible.find("Alice").target == "Ali"
@@ -134,18 +145,15 @@ def test_translate_document_fixes_untranslated_names(tmp_path):
     bible.add_entity(Entity("Alice", "Ali", "character"))
     bible.add_entity(Entity("Bob", "Bốp", "character"))
 
-    def sloppy(kw):
+    def sloppy(system, user):
         # Lần đầu "quên" dịch tên Bob; khi có <reminder> thì dịch đúng.
-        user = kw["messages"][0]["content"]
-        if "<reminder>" in user:
-            return default_responder(kw)
-        names = {"Alice": "Ali"}
-        return make_message(translation_reply(fake_translate(source_of(user), names).replace("BOB", "Bob")))
+        if "<reminder>" in user or "<draft>" in user:
+            return default_responder(system, user)
+        return reply(translation_reply(fake_translate(source_of(user), {"Alice": "Ali"}).replace("BOB", "Bob")))
 
-    t = make_translator(FakeClient(sloppy), bible=bible)
-    doc = load_document(src)
+    t, _ = make_translator(sloppy, bible=bible)
     out = tmp_path / "o.md"
-    result = translate_document(t, doc, out, workers=2)
+    result = translate_document(t, load_document(src), out, workers=2)
     text = out.read_text(encoding="utf-8")
     assert "Bob" not in text and text.count("Bốp") == 2 and text.count("Ali") == 3
     assert result.fixed_chunks == 2
@@ -158,8 +166,7 @@ def test_translate_document_no_fix_reports_only(tmp_path):
     src.write_text(STORY, encoding="utf-8")
     bible = StoryBible()
     bible.add_entity(Entity("Bob", "Bốp", "character"))
-    leave = lambda kw: make_message(translation_reply(source_of(kw["messages"][0]["content"])))
-    t = make_translator(FakeClient(leave), bible=bible)
+    t, _ = make_translator(lambda s, u: reply(translation_reply(source_of(u))), bible=bible, polish=False)
     result = translate_document(t, load_document(src), tmp_path / "o.md", fix=False)
     assert result.fixed_chunks == 0
     assert {i.problem for i in result.issues} == {"untranslated"}
@@ -169,58 +176,73 @@ def test_translate_document_no_fix_reports_only(tmp_path):
 # ---- CLI --------------------------------------------------------------
 
 
-def test_cli_genres(capsys):
-    assert cli.main(["genres"]) == 0
+def test_cli_catalogs(capsys):
+    assert cli.main(["the-loai"]) == 0 and cli.main(["phong-cach"]) == 0
     out = capsys.readouterr().out
-    for key in ("scifi", "fantasy", "romance", "wuxia"):
+    for key in ("scifi", "fantasy", "romance", "wuxia", "comic", "lylan"):
         assert key in out
 
 
-def test_cli_analyze_then_translate_and_resume(tmp_path, monkeypatch, capsys):
-    fake = FakeClient()
-    monkeypatch.setattr(translator_mod.anthropic, "Anthropic", lambda **kw: fake)
+def test_cli_analyze_then_translate_and_resume(tmp_path, fake_api, capsys):
     src = tmp_path / "story.md"
     src.write_text(STORY, encoding="utf-8")
 
     # 1) lập sổ tay để duyệt
-    assert cli.main(["analyze", str(src), "--genre", "romance"]) == 0
+    assert cli.main(["phan-tich", str(src), "-g", "romance"]) == 0
     bible_path = tmp_path / "story.bible.json"
     data = json.loads(bible_path.read_text(encoding="utf-8"))
-    assert data["entities"][0]["target"] == "Ali"
-    assert len(data["sections"]) == 2
-    # người dùng sửa tay: đổi tên Bob
+    assert data["entities"][0]["target"] == "Ali" and len(data["sections"]) == 2
+    # người dùng sửa tay: thêm tên Bob
     data["entities"].append({"source": "Bob", "target": "Bảo", "type": "character"})
     bible_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     # 2) dịch với sổ tay đã sửa: không phân tích lại
-    n_analysis = len(fake.messages.analysis_calls)
-    assert cli.main(["translate", str(src), "--genre", "romance", "--bible", str(bible_path)]) == 0
-    assert len(fake.messages.analysis_calls) == n_analysis
+    n_analysis = len(fake_api.analysis_calls)
+    assert cli.main(["dich", str(src), "-g", "romance", "--so-tay", str(bible_path)]) == 0
+    assert len(fake_api.analysis_calls) == n_analysis
     out = (tmp_path / "story.vi.md").read_text(encoding="utf-8")
     assert "Bảo" in out and "Bob" not in out and "Ali" in out
-    assert "Lãng mạn" in fake.messages.calls[0]["system"][0]["text"]
+    assert "Lãng mạn" in fake_api.calls[0]["system"]
     assert (tmp_path / "story.vi.md.consistency.md").exists()
 
     # 3) chạy lại: mọi đoạn lấy từ cache
-    n_calls = len(fake.messages.calls)
+    n_calls = len(fake_api.calls)
     assert cli.main(["translate", str(src), "--genre", "romance", "--bible", str(bible_path)]) == 0
-    assert len(fake.messages.calls) == n_calls
+    assert len(fake_api.calls) == n_calls
+    assert "Chưa gọi API lần nào" in capsys.readouterr().err
 
     # 4) --fresh: dịch lại
-    assert cli.main(["translate", str(src), "--genre", "romance", "--bible", str(bible_path), "--fresh"]) == 0
-    assert len(fake.messages.calls) > n_calls
+    assert cli.main(["dich", str(src), "-g", "romance", "--so-tay", str(bible_path), "--fresh"]) == 0
+    assert len(fake_api.calls) > n_calls
 
 
-def test_cli_genre_default_effort(tmp_path, monkeypatch):
-    fake = FakeClient()
-    monkeypatch.setattr(translator_mod.anthropic, "Anthropic", lambda **kw: fake)
+def test_cli_presets_and_effort(tmp_path, fake_api):
     src = tmp_path / "s.txt"
     src.write_text("Hello.", encoding="utf-8")
-    assert cli.main(["translate", str(src), "--genre", "wuxia", "--no-analyze"]) == 0
-    assert fake.messages.calls[0]["output_config"]["effort"] == "high"
-    assert cli.main(["translate", str(src), "-g", "wuxia", "--no-analyze", "--effort", "low", "--fresh"]) == 0
-    assert fake.messages.calls[-1]["output_config"]["effort"] == "low"
+    assert cli.main(["dich", str(src), "-g", "wuxia", "--no-analyze"]) == 0
+    assert fake_api.calls[-1]["effort"] == "high"  # theo thể loại
+    n = len(fake_api.calls)
+    assert cli.main(["dich", str(src), "-g", "wuxia", "--no-analyze", "--muc", "tiet-kiem", "--fresh"]) == 0
+    assert fake_api.calls[-1]["effort"] == "medium" and len(fake_api.calls) == n + 1  # không biên tập
+    assert cli.main(["dich", str(src), "-g", "general", "--no-analyze", "--muc", "cao-cap", "--fresh"]) == 0
+    assert fake_api.calls[-1]["effort"] == "high"
+    assert cli.main(["dich", str(src), "--no-analyze", "--effort", "low", "--no-polish", "--fresh"]) == 0
+    assert fake_api.calls[-1]["effort"] == "low"
+
+
+def test_cli_chains_use_preset_models(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override: seen.append((spec, override)) or fake_chain()[0])
+    args = cli.build_parser().parse_args(["dich", "x.epub", "--muc", "tiet-kiem", "--providers", "claude,deepseek"])
+    cli._chains(args)
+    (t_spec, t_over), (a_spec, a_over) = seen
+    assert t_over == {"claude": "claude-sonnet-5-5"} and a_over == {"claude": "claude-haiku-5-5"}
+    assert t_spec == [("claude", None), ("deepseek", None)]
+    seen.clear()
+    args = cli.build_parser().parse_args(["dich", "x.epub", "--model", "claude-fable-5-1"])
+    cli._chains(args)
+    assert seen[0][0] == [("claude", "claude-fable-5-1")] and seen[1][0] == [("claude", None)]
 
 
 def test_cli_missing_file(tmp_path):
-    assert cli.main(["translate", str(tmp_path / "nope.txt")]) == 2
+    assert cli.main(["dich", str(tmp_path / "nope.txt")]) == 2

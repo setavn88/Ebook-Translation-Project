@@ -1,4 +1,13 @@
-"""Giao diện dòng lệnh: `booktranslator genres | analyze | translate`."""
+"""Giao diện dòng lệnh.
+
+Lệnh (tên tiếng Việt hoặc tiếng Anh đều được):
+  the-loai | genres          liệt kê thể loại
+  phong-cach | styles        liệt kê phong cách dịch
+  hoc-phong-cach | learn-style  học phong cách từ sách tham chiếu
+  phan-tich | analyze        lập sổ tay truyện
+  dich-thu | preview         dịch thử vài đoạn
+  dich | translate           dịch cả cuốn
+"""
 
 from __future__ import annotations
 
@@ -16,9 +25,21 @@ from .bible import StoryBible
 from .cache import TranslationCache
 from .chunker import DEFAULT_CHUNK_CHARS
 from .document import SUPPORTED, default_output_path, load_document
-from .genres import BUILTIN, load_genre
-from .pipeline import analyze_document, translate_document
-from .translator import DEFAULT_MODEL, TranslationError, Translator, TranslatorConfig
+from .genres import BUILTIN as GENRES, load_genre
+from .pipeline import analyze_document, preview_document, translate_document
+from .providers import ProviderUnavailable, build_chain, parse_spec
+from .styles import BUILTIN as STYLES, load_style
+from .stylelearn import learn_style
+from .translator import TranslationError, Translator, TranslatorConfig
+
+_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
+# Mức chất lượng / chi phí. Chỉ áp dụng cho Claude khi người dùng không tự chọn model.
+PRESETS = {
+    "tiet-kiem": {"model": "claude-sonnet-5-5", "analysis_model": "claude-haiku-5-5", "polish": False, "max_effort": "medium"},
+    "can-bang": {"model": "claude-opus-5-5", "analysis_model": "claude-sonnet-5-5", "polish": True, "max_effort": None},
+    "cao-cap": {"model": "claude-opus-5-5", "analysis_model": "claude-opus-5-5", "polish": True, "min_effort": "high"},
+}
 
 
 def _load_glossary(path: Path | None) -> dict[str, str]:
@@ -30,51 +51,83 @@ def _load_glossary(path: Path | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
+def _add_api_opts(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--providers", default="claude",
+        help="Nhà cung cấp API theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
+             "Vd: claude,deepseek hoặc deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
+    )
+    p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
+    p.add_argument("--effort", choices=_EFFORTS, help="Mức suy nghĩ của mô hình; mặc định theo thể loại và --muc")
+    p.add_argument("--no-fallback", action="store_true", help="Tắt fallback phía server của Claude (cần khi dùng qua Bedrock/Vertex)")
+
+
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("input", type=Path, help=f"File sách ({', '.join(SUPPORTED)})")
-    p.add_argument(
-        "-g", "--genre", default="general", choices=list(BUILTIN),
-        help="Chế độ dịch theo thể loại (xem `booktranslator genres`)",
-    )
-    p.add_argument("--genre-file", type=Path, help="File JSON định nghĩa thể loại riêng (ghi đè --genre)")
+    p.add_argument("-g", "--the-loai", "--genre", dest="genre", default="general", choices=list(GENRES),
+                   help="Thể loại sách (xem lệnh the-loai)")
+    p.add_argument("--the-loai-file", "--genre-file", dest="genre_file", type=Path, help="File JSON thể loại tự định nghĩa")
+    p.add_argument("-p", "--phong-cach", "--translator-style", dest="style", default="natural", choices=list(STYLES),
+                   help="Phong cách dịch có sẵn (xem lệnh phong-cach)")
+    p.add_argument("--phong-cach-file", "--style-file", dest="style_file", type=Path,
+                   help="File phong cách dịch (tự học bằng hoc-phong-cach hoặc tự viết) — ghi đè --phong-cach")
+    p.add_argument("--muc", choices=list(PRESETS), default="can-bang",
+                   help="Mức chất lượng/chi phí: tiet-kiem | can-bang (mặc định) | cao-cap")
     p.add_argument("--to", dest="target", default="Tiếng Việt", help="Ngôn ngữ đích (mặc định: Tiếng Việt)")
     p.add_argument("--from", dest="source", default="tự nhận diện", help="Ngôn ngữ nguồn (mặc định: tự nhận diện)")
-    p.add_argument("--model", default=DEFAULT_MODEL, help=f"Model Claude (mặc định: {DEFAULT_MODEL})")
-    p.add_argument(
-        "--effort", choices=["low", "medium", "high", "xhigh", "max"],
-        help="Mức suy nghĩ của mô hình; mặc định theo thể loại",
-    )
     p.add_argument("--glossary", type=Path, help="File JSON {\"nguồn\": \"đích\"} nạp thêm vào sổ tay")
     p.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="Số ký tự tối đa mỗi đoạn gửi đi")
     p.add_argument("--workers", type=int, default=4, help="Số chương xử lý song song (mặc định: 4)")
     p.add_argument("--cache-dir", type=Path, help="Thư mục lưu tiến độ (mặc định: .bt_cache cạnh file kết quả)")
-    p.add_argument(
-        "--no-fallback", action="store_true",
-        help="Tắt fallback phía server khi mô hình từ chối (cần khi dùng Bedrock/Vertex/Foundry)",
-    )
+    _add_api_opts(p)
+
+
+def _add_translate_opts(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-o", "--output", type=Path, help="File kết quả (mặc định: <tên>.<mã ngôn ngữ>.<đuôi>)")
+    p.add_argument("--lang-code", default="vi", help="Mã ngôn ngữ đích ghi vào EPUB và tên file (mặc định: vi)")
+    p.add_argument("--yeu-cau", "--note", dest="note", default="", help="Yêu cầu riêng cho bản dịch, ưu tiên cao nhất")
+    p.add_argument("--so-tay", "--bible", dest="bible", type=Path, help="File sổ tay truyện (mặc định: <file kết quả>.bible.json)")
+    p.add_argument("--polish", dest="polish", action="store_true", default=None, help="Bật bước biên tập (mặc định theo --muc)")
+    p.add_argument("--no-polish", dest="polish", action="store_false", help="Tắt bước biên tập (rẻ hơn ~một nửa)")
+    p.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="booktranslator", description="Dịch sách bằng Claude theo thể loại.")
+    parser = argparse.ArgumentParser(prog="booktranslator", description="Dịch sách bằng AI: nhất quán, có chiều sâu, đúng phong cách dịch giả.")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("genres", help="Liệt kê các chế độ dịch theo thể loại")
+    sub.add_parser("the-loai", aliases=["genres"], help="Liệt kê thể loại").set_defaults(cmd="genres")
+    sub.add_parser("phong-cach", aliases=["styles"], help="Liệt kê phong cách dịch").set_defaults(cmd="styles")
 
-    a = sub.add_parser("analyze", help="Đọc sách, lập sổ tay truyện (nhân vật, tên riêng, xưng hô, sự kiện) để duyệt trước")
+    ls = sub.add_parser("hoc-phong-cach", aliases=["learn-style"], help="Học phong cách dịch từ một cuốn sách tham chiếu")
+    ls.set_defaults(cmd="learn")
+    ls.add_argument("ban_dich", type=Path, help="Bản dịch tiếng Việt của sách tham chiếu (EPUB/TXT/MD)")
+    ls.add_argument("--ban-goc", type=Path, help="Bản gốc tiếng Anh của cùng cuốn sách (khuyên dùng: học được cách dịch từng câu, từng tên)")
+    ls.add_argument("-o", "--output", type=Path, required=True, help="File hồ sơ phong cách JSON sẽ tạo")
+    ls.add_argument("--ten", default="", help="Tên phong cách, vd. \"Lý Lan - Harry Potter\"")
+    ls.add_argument("--so-trich-doan", type=int, default=4, help="Số trích đoạn đọc trong sách (mặc định 4; nhiều hơn = kỹ hơn, tốn hơn)")
+    _add_api_opts(ls)
+
+    a = sub.add_parser("phan-tich", aliases=["analyze"], help="Lập sổ tay truyện (nhân vật, tên riêng, xưng hô, sự kiện) để duyệt trước")
+    a.set_defaults(cmd="analyze")
     _add_common(a)
     a.add_argument("-o", "--output", type=Path, help="File sổ tay JSON (mặc định: <tên sách>.bible.json)")
 
-    t = sub.add_parser("translate", help="Dịch một cuốn sách")
+    pv = sub.add_parser("dich-thu", aliases=["preview"], help="Dịch thử vài đoạn: bản gốc / bản nháp / bản biên tập")
+    pv.set_defaults(cmd="preview")
+    _add_common(pv)
+    _add_translate_opts(pv)
+    pv.add_argument("--section", type=int, help="Số thứ tự chương để dịch thử (mặc định: chương đầu tiên đủ dài)")
+    pv.add_argument("--chunks", type=int, default=2, help="Số đoạn dịch thử (mặc định: 2, mỗi đoạn ~6000 ký tự)")
+
+    t = sub.add_parser("dich", aliases=["translate"], help="Dịch cả cuốn sách")
+    t.set_defaults(cmd="translate")
     _add_common(t)
-    t.add_argument("-o", "--output", type=Path, help="File kết quả (mặc định: <tên>.<mã ngôn ngữ>.<đuôi>)")
-    t.add_argument("--lang-code", default="vi", help="Mã ngôn ngữ đích ghi vào EPUB và tên file (mặc định: vi)")
-    t.add_argument("--style", default="", help="Yêu cầu văn phong riêng, ưu tiên hơn quy tắc thể loại")
-    t.add_argument("--bible", type=Path, help="File sổ tay truyện (mặc định: <file kết quả>.bible.json)")
+    _add_translate_opts(t)
     t.add_argument("--no-analyze", action="store_true", help="Bỏ bước đọc trước cả sách (rẻ hơn, kém nhất quán hơn)")
     t.add_argument("--no-fix", action="store_true", help="Chỉ báo cáo lỗi nhất quán, không tự dịch lại")
-    t.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
     return parser
 
 
@@ -82,25 +135,23 @@ class _ProgressPrinter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
 
-    def __call__(self, step: str, name: str, done: int, total: int) -> None:
+    def __call__(self, step: str, name, done: int, total: int | None = None) -> None:
+        if total is None:  # (bước, đã xong, tổng)
+            name, done, total = "", name, done
         with self._lock:
-            print(f"  [{step}] {name}: {done}/{total}", file=sys.stderr, flush=True)
+            label = f"{name}: " if name else ""
+            print(f"  [{step}] {label}{done}/{total}", file=sys.stderr, flush=True)
 
 
-def _print_usage(translator: Translator) -> None:
-    u = translator.usage
-    print(
-        f"API: {u.requests} request, input {u.input_tokens:,} token "
-        f"(cache đọc {u.cache_read_input_tokens:,}, ghi {u.cache_creation_input_tokens:,}), "
-        f"output {u.output_tokens:,} token",
-        file=sys.stderr,
-    )
+def _err(msg: str) -> None:
+    print(msg, file=sys.stderr)
 
 
-def _print_genres() -> None:
-    for g in BUILTIN.values():
-        print(f"{g.key:<9} {g.name}")
-        print(f"          {g.description} (effort mặc định: {g.effort})")
+def _print_catalog(items) -> None:
+    for item in items:
+        print(f"{item.key:<9} {item.name}")
+        effort = f" (effort mặc định: {item.effort})" if hasattr(item, "effort") else ""
+        print(f"          {item.description}{effort}")
 
 
 def _bible_summary(bible: StoryBible) -> str:
@@ -110,88 +161,157 @@ def _bible_summary(bible: StoryBible) -> str:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
+def _effort(args, genre_effort: str) -> str:
+    if args.effort:
+        return args.effort
+    preset = PRESETS[getattr(args, "muc", "can-bang")]
+    effort = genre_effort
+    if preset.get("max_effort") and _EFFORTS.index(effort) > _EFFORTS.index(preset["max_effort"]):
+        effort = preset["max_effort"]
+    if preset.get("min_effort") and _EFFORTS.index(effort) < _EFFORTS.index(preset["min_effort"]):
+        effort = preset["min_effort"]
+    return effort
 
-    if args.command == "genres":
-        _print_genres()
-        return 0
+
+def _chains(args):
+    """(chuỗi dịch, chuỗi phân tích). Mức --muc chỉ chọn model Claude khi người dùng không tự chọn."""
+    preset = PRESETS[getattr(args, "muc", "can-bang")]
+    spec = parse_spec(args.providers)
+    translate_spec = list(spec)
+    if args.model:
+        translate_spec[0] = (spec[0][0], args.model)  # --model chỉ áp cho bước dịch
+    llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"]})
+    analysis = build_chain(spec, not args.no_fallback, {"claude": preset["analysis_model"]})
+    if analysis.id == llm.id:
+        analysis = llm
+    return llm, analysis
+
+
+def _paths(args) -> tuple[Path, Path, Path]:
+    """(file kết quả, file sổ tay, file cache) của lệnh hiện tại."""
+    if args.cmd == "analyze":
+        output = args.output or args.input.with_name(f"{args.input.stem}.bible.json")
+        bible_path = output
+    else:
+        output = args.output or default_output_path(args.input, args.lang_code)
+        bible_path = args.bible or output.with_name(f"{output.name}.bible.json")
+    cache_path = (args.cache_dir or output.parent / ".bt_cache") / f"{output.name}.jsonl"
+    return output, bible_path, cache_path
+
+
+def _learn(args, progress) -> int:
+    if not args.ban_dich.exists() or (args.ban_goc and not args.ban_goc.exists()):
+        _err("Không tìm thấy file sách tham chiếu")
+        return 2
+    llm, _ = _chains(args)
+    translated = load_document(args.ban_dich)
+    original = load_document(args.ban_goc) if args.ban_goc else None
+    name = args.ten or f"Phong cách học từ {args.ban_dich.stem}"
+    profile = learn_style(
+        llm, translated, original, name=name, key=args.output.stem, samples=args.so_trich_doan,
+        effort=args.effort or "high", progress=progress,
+    )
+    profile.save(args.output)
+    _err(f"Đã tạo hồ sơ phong cách: {args.output} ({len(profile.examples)} đoạn mẫu)")
+    _err("Mở file để xem/sửa, rồi dùng: --phong-cach-file " + str(args.output))
+    _err("Lưu ý: file chứa trích đoạn sách của bạn — chỉ dùng cá nhân.")
+    _err(llm.usage_report())
+    return 0
+
+
+def _run(args, progress) -> int:
+    if args.cmd == "learn":
+        return _learn(args, progress)
     if not args.input.exists():
-        print(f"Không tìm thấy file: {args.input}", file=sys.stderr)
+        _err(f"Không tìm thấy file: {args.input}")
         return 2
 
     genre = load_genre(args.genre, args.genre_file)
+    style = load_style(args.style, args.style_file)
+    preset = PRESETS[args.muc]
+    polish = getattr(args, "polish", None)
     config = TranslatorConfig(
         target_lang=args.target,
         source_lang=args.source,
-        model=args.model,
-        effort=args.effort or genre.effort,
-        use_fallback=not args.no_fallback,
+        effort=_effort(args, genre.effort),
+        note=getattr(args, "note", ""),
+        polish=preset["polish"] if polish is None else polish,
     )
-    progress = _ProgressPrinter()
+    llm, analysis_llm = _chains(args)
+    output, bible_path, cache_path = _paths(args)
+    doc = load_document(args.input, args.chunk_chars)
+    bible = StoryBible.load(bible_path)
+    bible.import_glossary(_load_glossary(args.glossary))
+    cache = TranslationCache(cache_path, load=not getattr(args, "fresh", False))
+    translator = Translator(config, llm, genre, style, bible, cache, analysis_llm)
+    _err(
+        f"Thể loại: {genre.name} · Phong cách: {style.name}\n"
+        f"Dịch: {llm.active.id} (effort {config.effort}, biên tập: {'có' if config.polish else 'không'}) · "
+        f"Phân tích: {analysis_llm.active.id} · {len(doc.sections)} chương"
+    )
 
-    if args.command == "analyze":
-        output = args.output or args.input.with_name(f"{args.input.stem}.bible.json")
-        cache_path = (args.cache_dir or output.parent / ".bt_cache") / f"{output.name}.jsonl"
-    else:
-        output = args.output or default_output_path(args.input, args.lang_code)
-        cache_path = (args.cache_dir or output.parent / ".bt_cache") / f"{output.name}.jsonl"
-        config.style = args.style
-
-    try:
-        doc = load_document(args.input, args.chunk_chars)
-        bible_path = output if args.command == "analyze" else (args.bible or output.with_name(f"{output.name}.bible.json"))
-        bible = StoryBible.load(bible_path)
-        bible.import_glossary(_load_glossary(args.glossary))
-        cache = TranslationCache(cache_path, load=not getattr(args, "fresh", False))
-        translator = Translator(config, genre, bible, cache=cache)
-        print(f"Thể loại: {genre.name} · effort: {config.effort} · {len(doc.sections)} chương", file=sys.stderr)
-
-        if args.command == "analyze" or not args.no_analyze:
-            analyze_document(translator, doc, args.workers, progress)
-            bible.save()
-            print(f"Sổ tay truyện: {bible_path} ({_bible_summary(bible)})", file=sys.stderr)
-        if args.command == "analyze":
-            print("Hãy xem và sửa sổ tay nếu cần, rồi chạy `translate --bible` với file này.", file=sys.stderr)
-            _print_usage(translator)
-            return 0
-
-        if args.no_analyze and args.workers > 1:
-            print("Lưu ý: không phân tích trước mà dịch song song thì tên mới có thể lệch giữa các chương; "
-                  "nên dùng --workers 1.", file=sys.stderr)
-        result = translate_document(
-            translator, doc, output, workers=args.workers, lang_code=args.lang_code, fix=not args.no_fix, progress=progress
-        )
+    if args.cmd == "preview":
+        preview_path = output.with_name(f"{output.name}.preview.md")
+        preview_path.write_text(preview_document(translator, doc, args.section, args.chunks), encoding="utf-8")
         bible.save()
-        report_path = output.with_name(f"{output.name}.consistency.md")
-        report_path.write_text(result.report, encoding="utf-8")
-        untranslated = sum(1 for i in result.issues if i.problem == "untranslated")
-        print(f"Xong: {output}", file=sys.stderr)
-        print(f"Sổ tay: {bible_path} ({_bible_summary(bible)})", file=sys.stderr)
-        print(
-            f"Nhất quán: đã sửa {result.fixed_chunks} đoạn, còn {untranslated} lỗi sót tên, "
-            f"{len(result.issues) - untranslated} chỗ cần xem lại → {report_path}",
-            file=sys.stderr,
-        )
-        _print_usage(translator)
+        _err(f"Bản dịch thử: {preview_path}")
+        _err(f"Sổ tay: {bible_path} — các đoạn đã dịch thử được dùng lại khi chạy `dich` cùng tùy chọn.")
+        _err(translator.usage_report())
         return 0
+
+    if args.cmd == "analyze" or not args.no_analyze:
+        analyze_document(translator, doc, args.workers, progress)
+        bible.save()
+        _err(f"Sổ tay truyện: {bible_path} ({_bible_summary(bible)})")
+    if args.cmd == "analyze":
+        _err("Hãy xem và sửa sổ tay nếu cần, rồi chạy `dich --so-tay` với file này.")
+        _err(translator.usage_report())
+        return 0
+
+    if args.no_analyze and args.workers > 1:
+        _err("Lưu ý: không phân tích trước mà dịch song song thì tên mới có thể lệch giữa các chương; nên dùng --workers 1.")
+    result = translate_document(
+        translator, doc, output, workers=args.workers, lang_code=args.lang_code, fix=not args.no_fix, progress=progress
+    )
+    bible.save()
+    report_path = output.with_name(f"{output.name}.consistency.md")
+    report_path.write_text(result.report, encoding="utf-8")
+    untranslated = sum(1 for i in result.issues if i.problem == "untranslated")
+    _err(f"Xong: {output}")
+    _err(f"Sổ tay: {bible_path} ({_bible_summary(bible)})")
+    _err(
+        f"Nhất quán: đã sửa {result.fixed_chunks} đoạn, còn {untranslated} lỗi sót tên, "
+        f"{len(result.issues) - untranslated} chỗ cần xem lại → {report_path}"
+    )
+    _err(translator.usage_report())
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
+    if args.cmd == "genres":
+        _print_catalog(GENRES.values())
+        return 0
+    if args.cmd == "styles":
+        _print_catalog(STYLES.values())
+        return 0
+    try:
+        return _run(args, _ProgressPrinter())
     except (KeyError, ValueError) as e:
-        print(f"Lỗi: {e}", file=sys.stderr)
+        _err(f"Lỗi: {e}")
         return 2
-    except TranslationError as e:
-        print(f"Lỗi dịch: {e}", file=sys.stderr)
-        print("Tiến độ đã được lưu; chạy lại cùng lệnh để tiếp tục.", file=sys.stderr)
+    except ProviderUnavailable as e:
+        _err(f"Không còn nhà cung cấp API nào dùng được: {e}")
+        _err("Tiến độ đã được lưu. Nạp thêm credit, đặt API key khác, hoặc thêm --providers claude,deepseek,openai rồi chạy lại.")
         return 1
-    except anthropic.AuthenticationError:
-        print("Sai hoặc thiếu API key. Đặt biến môi trường ANTHROPIC_API_KEY.", file=sys.stderr)
+    except TranslationError as e:
+        _err(f"Lỗi dịch: {e}")
+        _err("Tiến độ đã được lưu; chạy lại cùng lệnh để tiếp tục.")
         return 1
     except anthropic.APIStatusError as e:
-        print(f"Lỗi API ({e.status_code}): {e.message}", file=sys.stderr)
-        print("Tiến độ đã được lưu; chạy lại cùng lệnh để tiếp tục.", file=sys.stderr)
-        return 1
-    except anthropic.APIConnectionError:
-        print("Lỗi kết nối mạng tới API. Tiến độ đã được lưu; chạy lại để tiếp tục.", file=sys.stderr)
+        _err(f"Lỗi API ({e.status_code}): {e.message}")
+        _err("Tiến độ đã được lưu; chạy lại cùng lệnh để tiếp tục.")
         return 1
 
 

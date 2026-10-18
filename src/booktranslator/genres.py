@@ -225,6 +225,40 @@ _register(
 
 _register(
     GenreProfile(
+        key="comic",
+        name="Giả tưởng hài hước / Châm biếm (Discworld, Hitchhiker's Guide)",
+        description="Fantasy/sci-fi trào phúng: chơi chữ, châm biếm, chú thích hài của tác giả.",
+        effort="high",
+        style="""
+- Cái hài là nội dung chính: mỗi câu đùa, lối nói mỉa, phép so sánh ngớ ngẩn phải buồn cười bằng tiếng Việt.
+  Chơi chữ không dịch được nghĩa đen thì sáng tác lại một trò chơi chữ tiếng Việt cùng ý và cùng chỗ đặt.
+- Giữ giọng tỉnh bơ, nói giảm nói tránh kiểu Anh (understatement): chuyện kinh thiên động địa kể bằng giọng bình thản.
+- Câu dài kiểu liệt kê, lạc đề rồi quay lại của tác giả: giữ cấu trúc và cú "chốt" ở cuối câu, vì cú chốt thường
+  là chỗ gây cười — đừng đảo cú chốt lên đầu.
+- Chú thích (footnote) của tác giả là một phần của truyện, thường là chỗ hài nhất: dịch đầy đủ, cùng giọng, giữ
+  nguyên vị trí và liên kết.
+- Lời thoại viết IN HOA toàn bộ trong bản gốc (ví dụ lời của Thần Chết - DEATH trong Discworld) phải giữ IN HOA,
+  không dấu ngoặc kép nếu bản gốc không có.
+- Ám chỉ văn hóa (nhại văn học, phim, thành ngữ Anh) thì tìm cách nói tương đương để người Việt vẫn bắt được ý,
+  không thêm chú thích giải thích.
+""",
+        naming="""
+- Tên người kiểu bịa không có nghĩa rõ (Rincewind, Vimes) giữ nguyên chính tả.
+- Tên có nghĩa hoặc là trò đùa (địa danh, tổ chức, chức danh, biệt danh, đồ vật biết đi) dịch thành tên tiếng Việt
+  ngắn gọn, dí dỏm, viết hoa như tên riêng (Unseen University → Đại học Vô Hình, the Luggage → Cái Rương,
+  the Patrician → Ngài Thống lĩnh). Một khi đã chọn thì dùng mãi một tên.
+- Tên thành phố/vùng đất bịa giữ nguyên (Ankh-Morpork) trừ khi tác giả cố ý dùng như một từ có nghĩa.
+""",
+        entity_types=("character", "title", "place", "organization", "creature", "artifact", "magic", "term"),
+        analysis_focus=(
+            "nhân vật và danh xưng/biệt danh, tổ chức và chức danh, địa danh, sinh vật, đồ vật có tính cách, các trò "
+            "đùa và tên gọi lặp lại xuyên suốt (running gags) cần dịch thống nhất, nhân vật nói IN HOA."
+        ),
+    )
+)
+
+_register(
+    GenreProfile(
         key="literary",
         name="Văn học kinh điển / Văn chương",
         description="Tiểu thuyết văn chương, kinh điển, sách có văn phong đặc trưng.",

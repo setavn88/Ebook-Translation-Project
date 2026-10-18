@@ -1,0 +1,16 @@
+{
+  "base": "lylan",
+  "key": "my-favorite",
+  "name": "Giọng dịch yêu thích của tôi",
+  "description": "Kế thừa phong cách lylan và học thêm từ các đoạn mẫu bên dưới.",
+  "examples": [
+    {
+      "source": "Dán vào đây một đoạn tiếng Anh gốc (3-10 câu, nên có cả lời thoại).",
+      "target": "Dán vào đây bản dịch tiếng Việt bạn thích nhất của đúng đoạn đó."
+    },
+    {
+      "source": "Nên chọn 3-6 đoạn đa dạng: tả cảnh, lời thoại nhiều nhân vật, một câu đùa/chơi chữ, một tên riêng được Việt hóa.",
+      "target": "Mẫu càng sát giọng bạn muốn, bản dịch càng giống. Xóa hai mẫu hướng dẫn này trước khi dùng."
+    }
+  ]
+}
