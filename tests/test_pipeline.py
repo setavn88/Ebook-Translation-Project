@@ -232,7 +232,7 @@ def test_cli_presets_and_effort(tmp_path, fake_api):
 
 def test_cli_chains_use_preset_models(monkeypatch):
     seen = []
-    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override: seen.append((spec, override)) or fake_chain()[0])
+    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append((spec, override)) or fake_chain()[0])
     args = cli.build_parser().parse_args(["dich", "x.epub", "--muc", "tiet-kiem", "--providers", "claude,deepseek"])
     cli._chains(args)
     (t_spec, t_over), (a_spec, a_over) = seen
@@ -247,3 +247,12 @@ def test_cli_chains_use_preset_models(monkeypatch):
 
 def test_cli_missing_file(tmp_path):
     assert cli.main(["dich", str(tmp_path / "nope.txt")]) == 2
+
+
+def test_cli_wait_option(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(wait) or fake_chain()[0])
+    cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]))
+    cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--cho-han-muc", "48"]))
+    cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--khong-cho"]))
+    assert seen == [12, 12, 48, 48, 0, 0]

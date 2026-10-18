@@ -79,6 +79,11 @@ def test_build_job_argv(server):
     assert f"--so-tay={ws / 'discworld.bible.json'}" in argv and "--chunks=3" in argv
     assert outputs == ["book.vi.epub.preview.md", "discworld.bible.json"]
 
+    assert "--khong-cho" not in argv
+    _, argv, _ = app.build_job({"action": "translate", "book": "book.epub", "wait": False})
+    assert "--khong-cho" in argv
+    _, argv, _ = app.build_job({"action": "translate", "book": "book.epub", "wait": True, "wait_hours": "48"})
+    assert "--cho-han-muc=48.0" in argv
     _, argv, outputs = app.build_job({"action": "translate", "book": "book.epub", "genre": "comic", "style": "lylan"})
     assert argv[0] == "dich" and "--phong-cach=lylan" in argv
     assert outputs == ["book.vi.epub", "book.vi.epub.consistency.md", "book.bible.json"]

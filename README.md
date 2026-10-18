@@ -37,6 +37,7 @@ Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và 
 
 Lưu ý:
 - **Hạn mức:** việc dịch tính vào hạn mức của gói (theo khung vài giờ và theo tuần), không phải tiền API. Dịch cả cuốn có biên tập khá tốn hạn mức: gói Pro dễ chạm giới hạn giữa chừng, gói Max thoải mái hơn. Chạm giới hạn thì phần mềm dừng và lưu tiến độ; hoặc thêm DeepSeek làm dự phòng (`--providers claude-code,deepseek`).
+- **Sách dài, hết hạn mức giữa chừng:** mỗi đoạn dịch xong được lưu ngay. Mặc định, khi hết hạn mức, phần mềm **tự chờ** đến giờ hạn mức hồi lại (hoặc cứ 15 phút thử lại một lần), rồi dịch tiếp, tối đa 12 giờ. Đổi bằng `--cho-han-muc 48`, tắt bằng `--khong-cho`; trên giao diện là ô "hết hạn mức thì tự chờ". Tắt máy hay bấm Dừng giữa chừng cũng không sao: lần sau chạy lại là tiếp tục đúng đoạn đang dở. Khi để chờ qua đêm, nhớ tắt chế độ ngủ (sleep) của máy.
 - **Không bị tính tiền API:** khi gọi Claude Code, phần mềm cố ý **không** truyền `ANTHROPIC_API_KEY`, để Claude Code luôn dùng gói đã đăng nhập.
 - **Chỉ dùng cá nhân:** đây là dùng tài khoản của chính bạn để dịch sách tự đọc. Đừng dùng cách này để chạy dịch vụ cho người khác.
 
@@ -266,6 +267,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `--no-analyze` | | Bỏ bước đọc trước (rẻ hơn, kém nhất quán; nên kèm `--workers 1`) |
 | `--no-fix` | | Chỉ báo cáo lỗi nhất quán, không tự sửa |
 | `--fresh` | | Bỏ qua kết quả đã lưu |
+| `--cho-han-muc GIỜ` / `--khong-cho` | 12 giờ | Hết hạn mức thì tự chờ rồi dịch tiếp / dừng luôn |
 | `--to` / `--from` / `--lang-code` | Tiếng Việt / tự nhận / `vi` | Ngôn ngữ |
 | `--chunk-chars` | `6000` | Kích thước mỗi đoạn |
 | `--workers` | `4` | Số chương xử lý song song |

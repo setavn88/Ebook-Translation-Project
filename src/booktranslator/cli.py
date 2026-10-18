@@ -61,6 +61,10 @@ def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
     p.add_argument("--effort", choices=_EFFORTS, help="Mức suy nghĩ của mô hình; mặc định theo thể loại và --muc")
     p.add_argument("--no-fallback", action="store_true", help="Tắt fallback phía server của Claude (cần khi dùng qua Bedrock/Vertex)")
+    p.add_argument("--cho-han-muc", dest="wait_hours", type=float, default=12, metavar="GIỜ",
+                   help="Hết hạn mức (vd. gói Claude Pro) thì tự chờ tối đa bấy nhiêu giờ rồi dịch tiếp (mặc định 12)")
+    p.add_argument("--khong-cho", dest="wait_hours", action="store_const", const=0,
+                   help="Hết hạn mức thì dừng luôn (tiến độ vẫn lưu, chạy lại sẽ tiếp tục)")
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -190,9 +194,10 @@ def _chains(args):
     translate_spec = list(spec)
     if args.model:
         translate_spec[0] = (spec[0][0], args.model)  # --model chỉ áp cho bước dịch
-    llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]})
+    wait = getattr(args, "wait_hours", 0)
+    llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
     analysis = build_chain(
-        spec, not args.no_fallback, {"claude": preset["analysis_model"], "claude-code": preset["analysis_model"]}
+        spec, not args.no_fallback, {"claude": preset["analysis_model"], "claude-code": preset["analysis_model"]}, wait
     )
     if analysis.id == llm.id:
         analysis = llm

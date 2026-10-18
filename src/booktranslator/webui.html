@@ -181,6 +181,9 @@ a { color: var(--accent); }
       <button class="btn" data-action="analyze">📒 Lập sổ tay</button>
       <button class="btn primary" data-action="translate">📚 Dịch cả cuốn</button>
       <label style="margin:0;font-weight:500"><input type="checkbox" id="fresh"> dịch lại từ đầu</label>
+      <label style="margin:0;font-weight:500" title="Hết hạn mức gói Claude (hoặc API quá tải) thì không dừng mà chờ hạn mức hồi lại rồi tự dịch tiếp">
+        <input type="checkbox" id="wait" checked> hết hạn mức thì tự chờ tối đa
+        <input type="number" id="waitHours" value="12" min="1" max="168" style="width:62px"> giờ rồi dịch tiếp</label>
       <span style="flex:1"></span><button class="btn danger" id="cancelBtn" disabled>■ Dừng</button>
     </div>
     <p style="margin:10px 0 6px">Trạng thái: <span class="status" id="jobStatus">chưa chạy</span></p>
@@ -255,10 +258,11 @@ async function api(path, opts = {}) {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---- ghi nhớ lựa chọn --------------------------------------------------
-const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "banDich", "banGoc", "styleName", "styleOut"];
+const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut"];
 function saveForm() {
   const v = Object.fromEntries(PERSIST.map((k) => [k, $(k).value]));
   v.providers = [...document.querySelectorAll("#providers input:checked")].map((i) => i.value);
+  v.wait = $("wait").checked;
   try { localStorage.setItem("bt-form", JSON.stringify(v)); } catch (e) {}
 }
 function loadForm() {
@@ -295,7 +299,8 @@ async function refresh(first = false) {
   fillSelect("banDich", f.books.map((b) => [b, b]), saved.banDich, "— chọn —");
   fillSelect("banGoc", f.books.map((b) => [b, b]), saved.banGoc, "— không có —");
   if (first) {
-    for (const k of ["muc", "polish", "model", "effort", "note", "chunks", "section", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    for (const k of ["muc", "polish", "model", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || "discworld.bible.json";
     const chosen = saved.providers || [state.providers["claude-code"] ? "claude-code" : "claude"];
     $("providers").innerHTML = PROVIDERS.map(([k, label]) =>
@@ -412,6 +417,7 @@ function collect(action) {
     providers: [...document.querySelectorAll("#providers input:checked")].map((i) => i.value),
     model: $("model").value, effort: $("effort").value, brief: $("brief").value, bible: bibleRel(), glossary: $("glossary").value,
     note: $("note").value, chunks: $("chunks").value, section: $("section").value, fresh: $("fresh").checked,
+    wait: $("wait").checked, wait_hours: $("waitHours").value,
     ban_dich: $("banDich").value, ban_goc: $("banGoc").value, style_name: $("styleName").value, style_output: $("styleOut").value,
   };
 }
@@ -426,13 +432,14 @@ document.querySelectorAll("[data-action]").forEach((b) => b.onclick = async () =
   } catch (e) { toast(e.message); }
 });
 $("cancelBtn").onclick = async () => { if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" }); };
-const LABEL = { running: "đang chạy…", done: "xong ✓", error: "lỗi — xem nhật ký", cancelled: "đã dừng (tiến độ đã lưu)" };
+const LABEL = { waiting: "đang chờ hạn mức hồi lại…", running: "đang chạy…", done: "xong ✓", error: "lỗi — xem nhật ký", cancelled: "đã dừng (tiến độ đã lưu)" };
 async function poll() {
   if (!currentJob) return;
   const j = await api(`/api/jobs/${currentJob.id}?since=${logNext}`);
   if (j.lines.length) { const log = $("log"); log.textContent += j.lines.join("\n") + "\n"; log.scrollTop = log.scrollHeight; }
   logNext = j.next;
-  $("jobStatus").textContent = LABEL[j.status] || j.status; $("jobStatus").className = "status " + j.status;
+  const waiting = j.status === "running" && /tự chờ đến/.test($("log").textContent.split("\n").filter(Boolean).slice(-1)[0] || "");
+  $("jobStatus").textContent = waiting ? LABEL.waiting : (LABEL[j.status] || j.status); $("jobStatus").className = "status " + j.status;
   $("cancelBtn").disabled = j.status !== "running";
   document.querySelectorAll("[data-action]").forEach((b) => b.disabled = j.status === "running");
   if (j.status === "running") return setTimeout(poll, 1000);

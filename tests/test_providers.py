@@ -284,3 +284,96 @@ def test_check_claude_code(fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "limit")
     ok, msg = check_claude_code()
     assert not ok and "usage limit" in msg
+
+
+# ---- chờ hạn mức rồi dịch tiếp ------------------------------------------
+
+from booktranslator.providers import PROBE_SECONDS, ProviderLimitReached, _TEMPORARY_RE, _limit_reset_time
+
+
+class Flaky(FakeProvider):
+    """Hết hạn mức `fails` lần đầu, sau đó dịch bình thường."""
+
+    def __init__(self, fails, retry_in=None, model="a"):
+        super().__init__(lambda s, u: reply("ok"), model=model)
+        self.fails = fails
+        self.retry_in = retry_in
+
+    def complete(self, system, user, **kw):
+        if self.fails > 0:
+            self.fails -= 1
+            import time as _t
+            raise ProviderLimitReached("usage limit", _t.time() + self.retry_in if self.retry_in else None)
+        return super().complete(system, user, **kw)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1_000_000.0]
+    monkeypatch.setattr("booktranslator.providers.time.time", lambda: now[0])
+    slept = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        now[0] += seconds
+
+    return now, slept, sleep
+
+
+def test_chain_waits_for_reset_time_then_continues(clock):
+    now, slept, sleep = clock
+    chain = ProviderChain([Flaky(1, retry_in=3600)], wait_hours=12, sleep=sleep)
+    assert chain.complete("s", "u").text == "ok"
+    assert slept == [3660]  # đúng giờ reset + 1 phút dự phòng
+
+
+def test_chain_probes_every_15_minutes_without_reset_time(clock):
+    now, slept, sleep = clock
+    chain = ProviderChain([Flaky(3)], wait_hours=12, sleep=sleep)
+    assert chain.complete("s", "u").text == "ok"
+    assert slept == [PROBE_SECONDS] * 3
+
+
+def test_chain_gives_up_after_max_wait(clock):
+    now, slept, sleep = clock
+    chain = ProviderChain([Flaky(10**6)], wait_hours=1, sleep=sleep)
+    with pytest.raises(ProviderLimitReached):
+        chain.complete("s", "u")
+    assert sum(slept) == 3600
+
+
+def test_chain_no_wait_stops_immediately(clock):
+    now, slept, sleep = clock
+    with pytest.raises(ProviderLimitReached):
+        ProviderChain([Flaky(1)], wait_hours=0, sleep=sleep).complete("s", "u")
+    assert slept == []
+
+
+def test_chain_uses_fallback_before_waiting_and_returns_to_primary(clock):
+    now, slept, sleep = clock
+    primary, backup = Flaky(1, model="a"), Flaky(1, model="b")
+    chain = ProviderChain([primary, backup], wait_hours=5, sleep=sleep)
+    assert chain.complete("s", "u").text == "ok"
+    assert len(slept) == 1 and chain.active is primary
+
+
+def test_permanent_errors_do_not_wait(clock):
+    now, slept, sleep = clock
+    with pytest.raises(ProviderUnavailable) as err:
+        ProviderChain([Exhausted()], wait_hours=12, sleep=sleep).complete("s", "u")
+    assert not isinstance(err.value, ProviderLimitReached) and slept == []
+
+
+def test_temporary_error_detection():
+    assert _TEMPORARY_RE.search("Claude AI usage limit reached|1760000000")
+    assert _TEMPORARY_RE.search("You've hit your limit · resets 3pm")
+    assert not _TEMPORARY_RE.search("Failed to generate response")
+    assert not _TEMPORARY_RE.search("Invalid API key · Please run /login")
+    assert _limit_reset_time("Claude AI usage limit reached|1760000000") == 1760000000.0
+    assert _limit_reset_time("hit your limit") is None
+
+
+def test_claude_code_limit_is_temporary(fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "limit")
+    with pytest.raises(ProviderLimitReached):
+        ClaudeCodeProvider(executable=fake_claude).complete("s", "u")

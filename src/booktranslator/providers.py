@@ -13,10 +13,12 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,7 +41,39 @@ _MAX_OUTPUT = {"claude": 64000, "deepseek": 8192, "openai": 32000}
 
 
 class ProviderUnavailable(RuntimeError):
-    """Nhà cung cấp tạm thời không dùng được (hết quota, rate limit, quá tải, sai key, mất mạng)."""
+    """Nhà cung cấp không dùng được (hết quota, rate limit, quá tải, sai key, mất mạng)."""
+
+
+class ProviderLimitReached(ProviderUnavailable):
+    """Không dùng được TẠM THỜI — hết hạn mức gói, rate limit, quá tải, mất mạng. Chờ rồi thử lại được.
+
+    `retry_at` (epoch giây) là lúc dự kiến dùng lại được, nếu nhà cung cấp cho biết.
+    """
+
+    def __init__(self, message: str, retry_at: float | None = None):
+        super().__init__(message)
+        self.retry_at = retry_at
+
+
+def _retry_after(error) -> float | None:
+    """Đọc header retry-after (giây) của lỗi HTTP 429, nếu có."""
+    try:
+        value = error.response.headers.get("retry-after")
+        return time.time() + float(value) if value else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+_TEMPORARY_RE = re.compile(
+    r"\b(usage limit|limit reached|hit your limit|rate.?limit|overloaded|quá tải|connection|network|timed? ?out)\b",
+    re.IGNORECASE,
+)
+
+
+def _limit_reset_time(message: str) -> float | None:
+    """Claude Code có thể kèm thời điểm reset hạn mức dạng epoch: "...usage limit reached|1760000000"."""
+    m = re.search(r"\|(\d{10})\b", message)
+    return float(m.group(1)) if m else None
 
 
 @dataclass
@@ -122,8 +156,11 @@ class ClaudeProvider(Provider):
         try:
             with self.client.beta.messages.stream(**kwargs) as stream:
                 message = stream.get_final_message()
-        except (anthropic.RateLimitError, anthropic.AuthenticationError, anthropic.PermissionDeniedError,
-                anthropic.InternalServerError, anthropic.APIConnectionError) as e:
+        except anthropic.RateLimitError as e:
+            raise ProviderLimitReached(f"Claude: hết hạn mức tạm thời ({e})", _retry_after(e)) from e
+        except (anthropic.InternalServerError, anthropic.APIConnectionError) as e:
+            raise ProviderLimitReached(f"Claude: quá tải hoặc mất mạng ({type(e).__name__})") from e
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise ProviderUnavailable(f"Claude: {type(e).__name__}: {e}") from e
         except anthropic.BadRequestError as e:
             if "credit balance" in str(e).lower():
@@ -232,7 +269,7 @@ class ClaudeCodeProvider(Provider):
         try:
             proc = subprocess.run(cmd, input=user.encode("utf-8"), capture_output=True, timeout=self.timeout, env=self._env())
         except subprocess.TimeoutExpired as e:
-            raise ProviderUnavailable(f"Claude Code không trả lời sau {self.timeout} giây") from e
+            raise ProviderLimitReached(f"Claude Code không trả lời sau {self.timeout} giây") from e
         except OSError as e:
             raise ProviderUnavailable(f"Không chạy được Claude Code: {e}") from e
         out = proc.stdout.decode("utf-8", errors="replace")
@@ -242,8 +279,11 @@ class ClaudeCodeProvider(Provider):
             err = (proc.stderr.decode("utf-8", errors="replace") or out).strip()[-500:]
             raise ProviderUnavailable(f"Claude Code lỗi (mã {proc.returncode}): {err}") from None
         if data.get("is_error"):
-            # Hết hạn mức gói, chưa đăng nhập, lỗi mạng... → để chuỗi dự phòng chuyển sang nhà cung cấp khác.
-            raise ProviderUnavailable(f"Claude Code: {str(data.get('result', ''))[:300]}")
+            message = str(data.get("result", ""))
+            if _TEMPORARY_RE.search(message):
+                # Hết hạn mức gói (theo khung giờ / theo tuần), quá tải, mất mạng → chờ được.
+                raise ProviderLimitReached(f"Claude Code: {message[:300]}", _limit_reset_time(message))
+            raise ProviderUnavailable(f"Claude Code: {message[:300]}")  # vd. chưa đăng nhập
         u = data.get("usage") or {}
         cached = u.get("cache_read_input_tokens") or 0
         self.usage.add(
@@ -299,8 +339,13 @@ class OpenAICompatProvider(Provider):
             )
         try:
             resp = self.client.chat.completions.create(**kwargs)
-        except (openai.RateLimitError, openai.AuthenticationError, openai.PermissionDeniedError,
-                openai.InternalServerError, openai.APIConnectionError) as e:
+        except openai.RateLimitError as e:
+            if "insufficient_quota" in str(e):  # hết tiền nạp: chờ không giải quyết được
+                raise ProviderUnavailable(f"{self.name}: hết số dư tài khoản") from e
+            raise ProviderLimitReached(f"{self.name}: hết hạn mức tạm thời", _retry_after(e)) from e
+        except (openai.InternalServerError, openai.APIConnectionError) as e:
+            raise ProviderLimitReached(f"{self.name}: quá tải hoặc mất mạng ({type(e).__name__})") from e
+        except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
             raise ProviderUnavailable(f"{self.name}: {type(e).__name__}: {e}") from e
         except openai.APIStatusError as e:
             if e.status_code == 402:  # DeepSeek: hết số dư
@@ -321,11 +366,22 @@ class OpenAICompatProvider(Provider):
 # ---- chuỗi dự phòng --------------------------------------------------
 
 
+PROBE_SECONDS = 15 * 60  # không biết giờ reset thì cứ 15 phút thử lại một lần
+
+
 class ProviderChain:
-    def __init__(self, providers: list[Provider]):
+    """Thử lần lượt các nhà cung cấp; tất cả đều tạm hết hạn mức thì (nếu bật) chờ rồi dịch tiếp.
+
+    `wait_hours`: tổng thời gian tối đa chờ hạn mức hồi lại cho MỘT lần gọi; 0 = không chờ, dừng luôn
+    (tiến độ vẫn được lưu, chạy lại sẽ tiếp tục).
+    """
+
+    def __init__(self, providers: list[Provider], wait_hours: float = 0, sleep=time.sleep):
         if not providers:
             raise ValueError("Cần ít nhất một nhà cung cấp mô hình")
         self.providers = providers
+        self.wait_hours = wait_hours
+        self._sleep = sleep
         self._active = 0
         self._lock = threading.Lock()
 
@@ -339,19 +395,46 @@ class ProviderChain:
         return self.providers[self._active]
 
     def complete(self, system: str, user: str, **kw) -> Completion:
+        deadline: float | None = None
+        while True:
+            try:
+                return self._complete_once(system, user, **kw)
+            except ProviderLimitReached as e:
+                now = time.time()
+                deadline = deadline or now + self.wait_hours * 3600
+                if now >= deadline:
+                    raise
+                resume = e.retry_at + 60 if e.retry_at and e.retry_at > now else now + PROBE_SECONDS
+                resume = min(resume, deadline)
+                log.warning(
+                    "Tất cả nhà cung cấp đang tạm hết hạn mức (%s). Tiến độ đã lưu — tự chờ đến %s rồi dịch tiếp. "
+                    "Muốn dừng hẳn thì bấm Dừng / Ctrl+C.", e, time.strftime("%H:%M %d/%m", time.localtime(resume)),
+                )
+                self._sleep(max(0.0, resume - now))
+                with self._lock:
+                    self._active = 0  # hạn mức đã hồi: quay lại nhà cung cấp ưu tiên nhất
+
+    def _complete_once(self, system: str, user: str, **kw) -> Completion:
         with self._lock:
             start = self._active
         last: Completion | None = None
+        limited: list[ProviderLimitReached] = []
         for idx in range(start, len(self.providers)):
             provider = self.providers[idx]
             try:
                 result = provider.complete(system, user, **kw)
             except ProviderUnavailable as e:
+                if isinstance(e, ProviderLimitReached):
+                    limited.append(e)
                 with self._lock:
                     if self._active <= idx < len(self.providers) - 1:
                         self._active = idx + 1
                         log.warning("%s — chuyển sang %s", e, self.providers[idx + 1].id)
                 if idx == len(self.providers) - 1:
+                    if limited and self.wait_hours > 0:
+                        # Ít nhất một nhà cung cấp chỉ tạm hết hạn mức → chờ được; lấy giờ reset sớm nhất.
+                        times = [x.retry_at for x in limited if x.retry_at]
+                        raise ProviderLimitReached("; ".join(map(str, limited)), min(times) if times else None) from e
                     raise
                 continue
             if result.stop_reason != "refusal":
@@ -390,7 +473,10 @@ def parse_spec(spec: str) -> list[tuple[str, str | None]]:
 
 
 def build_chain(
-    spec: str | list[tuple[str, str | None]], use_fallback: bool = True, model_override: dict[str, str] | None = None
+    spec: str | list[tuple[str, str | None]],
+    use_fallback: bool = True,
+    model_override: dict[str, str] | None = None,
+    wait_hours: float = 0,
 ) -> ProviderChain:
     """Tạo chuỗi từ cấu hình; nhà cung cấp thiếu key/thư viện thì bỏ qua (trừ khi không còn cái nào).
 
@@ -414,4 +500,4 @@ def build_chain(
                 log.warning("Bỏ qua %s: %s", name, e)
     if not providers:
         raise ValueError("Không dùng được nhà cung cấp nào: " + "; ".join(errors))
-    return ProviderChain(providers)
+    return ProviderChain(providers, wait_hours=wait_hours)

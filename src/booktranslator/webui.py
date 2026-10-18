@@ -242,6 +242,10 @@ class App:
             args.append(f"--model={model}")
         if (effort := opts.get("effort")) in ("low", "medium", "high", "xhigh", "max"):
             args.append(f"--effort={effort}")
+        if opts.get("wait") is False:
+            args.append("--khong-cho")
+        elif opts.get("wait_hours"):
+            args.append(f"--cho-han-muc={max(0.0, min(float(opts['wait_hours']), 168.0))}")
         return args
 
     def start_job(self, opts: dict) -> Job:
