@@ -239,6 +239,9 @@ class App:
             job = Job(secrets.token_hex(4), action, argv, outputs)
             self.jobs[job.id] = job
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        # Tiến trình con phải import được booktranslator kể cả khi chưa "pip install" (chạy từ mã nguồn).
+        package_root = str(Path(__file__).resolve().parents[1])
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH", "")) if p)
         for name, value in self.keys.items():
             if value:
                 env[API_KEY_ENV[name]] = value
