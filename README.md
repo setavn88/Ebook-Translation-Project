@@ -11,6 +11,61 @@ Bốn mục tiêu và cách công cụ đáp ứng:
 | **3. Theo phong cách một dịch giả** (vd. Lý Lan dịch Harry Potter) | **Hồ sơ phong cách dịch**: có sẵn mô tả kiểu Lý Lan. Tốt nhất là **tự học từ sách tham chiếu** bạn đưa vào (`hoc-phong-cach`). |
 | **4. Ít token nhất; đổi được API** khi Claude hết quota | Prompt cố định để trúng cache, chỉ gửi phần sổ tay liên quan, lưu lại mọi kết quả, có 3 **mức chi phí**, bước phân tích dùng model rẻ hơn. Hỗ trợ **Claude, DeepSeek, ChatGPT**; lỗi hoặc hết quota thì tự chuyển sang API kế tiếp. |
 
+## Bắt đầu nhanh: dịch thử một cuốn Discworld
+
+**1. Tải về và cài đặt** (cần [Python ≥ 3.10](https://www.python.org/downloads/) và [Git](https://git-scm.com/)):
+
+```bash
+git clone -b claude/ai-book-translator https://github.com/setavn88/Ebook-Translation-Project.git
+cd Ebook-Translation-Project
+pip install -e '.[openai]'
+```
+
+**2. Đặt API key** (lấy tại https://platform.claude.com):
+
+```bash
+# macOS / Linux
+export ANTHROPIC_API_KEY="sk-ant-..."
+# Windows PowerShell
+$env:ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+**3. Dịch thử 2 đoạn** (vài nghìn chữ) để xem giọng văn và chi phí:
+
+```bash
+booktranslator dich-thu "The Colour of Magic.epub" -g comic -p lylan \
+    --huong-dan examples/discworld/huong-dan-dich.md \
+    --glossary examples/discworld/ten-rieng.json \
+    --so-tay discworld.bible.json
+```
+
+Mở `The Colour of Magic.vi.epub.preview.md`. File này có:
+- danh sách tên riêng đã chọn,
+- từng đoạn **bản gốc / bản nháp / bản biên tập** đặt cạnh nhau,
+- số token đã dùng, in ở cuối màn hình.
+
+Chưa ưng chỗ nào thì sửa:
+
+| Muốn sửa | Sửa ở đâu |
+|---|---|
+| Giọng văn, giọng nhân vật, cách xử lý câu đùa | `examples/discworld/huong-dan-dich.md`, mục "Ghi chú của tôi" hoặc bất kỳ đâu |
+| Tên riêng | `discworld.bible.json` (hoặc `ten-rieng.json` trước lần chạy đầu) |
+
+Rồi chạy lại lệnh trên. Đổi file hướng dẫn thì công cụ tự dịch lại phần thử.
+
+**4. Dịch cả cuốn** (cùng tùy chọn; các đoạn đã dịch thử không tốn tiền lại):
+
+```bash
+booktranslator dich "The Colour of Magic.epub" -g comic -p lylan \
+    --huong-dan examples/discworld/huong-dan-dich.md \
+    --glossary examples/discworld/ten-rieng.json \
+    --so-tay discworld.bible.json
+```
+
+Các cuốn Discworld sau dùng lại đúng `discworld.bible.json` và file hướng dẫn, để tên và giọng nhân vật thống nhất cả bộ. Khi đã học được phong cách từ sách Lý Lan (`hoc-phong-cach`, xem mục 3), thay `-p lylan` bằng `--phong-cach-file lylan-hp.json`.
+
+Muốn rẻ hơn khi thử: thêm `--muc tiet-kiem` (Sonnet, không biên tập). Muốn bản tốt nhất: `--muc cao-cap` hoặc `--model claude-fable-5-1`.
+
 ## Cài đặt
 
 Yêu cầu Python ≥ 3.10.

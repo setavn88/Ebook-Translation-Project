@@ -46,6 +46,7 @@ class TranslatorConfig:
     effort: str = "medium"
     analysis_effort: str = "low"
     note: str = ""  # yêu cầu riêng của người dùng, ưu tiên cao nhất
+    brief: str = ""  # hướng dẫn dịch riêng cho cuốn/bộ sách (file --huong-dan)
     polish: bool = True  # thêm bước biên tập nhuận sắc sau khi dịch nháp
 
 
@@ -100,6 +101,12 @@ def _profile_parts(config: TranslatorConfig, genre: GenreProfile, style: StylePr
     if _is_vietnamese(config.target_lang):
         parts += ["", NATURALNESS_RULES]
     parts += ["", style.prompt_block()]
+    if config.brief.strip():
+        parts += [
+            "",
+            "HƯỚNG DẪN DỊCH RIÊNG CHO CUỐN/BỘ SÁCH NÀY (ưu tiên hơn quy tắc thể loại và phong cách khi mâu thuẫn):",
+            config.brief.strip(),
+        ]
     if config.note:
         parts += ["", "Yêu cầu riêng của người dùng (ưu tiên hơn mọi quy tắc trên):", config.note]
     return parts
@@ -212,6 +219,7 @@ class Translator:
         self._profile = TranslationCache.make_key(
             json.dumps(self.genre.to_dict(), sort_keys=True, ensure_ascii=False),
             json.dumps(self.style.to_dict(), sort_keys=True, ensure_ascii=False),
+            config.brief,
         )
 
     def fork(self, bible: StoryBible) -> "Translator":
@@ -286,6 +294,7 @@ class Translator:
                 "",
                 # Phân tích chỉ cần quy tắc đặt tên/xưng hô của phong cách, không cần đoạn mẫu → bớt token.
                 f"PHONG CÁCH DỊCH: {self.style.name}\n{self.style.naming.strip()}\n{self.style.addressing.strip()}".strip(),
+                *(["", "HƯỚNG DẪN DỊCH RIÊNG CHO CUỐN/BỘ SÁCH NÀY:", c.brief.strip()] if c.brief.strip() else []),
             ]
         )
 

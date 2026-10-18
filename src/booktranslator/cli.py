@@ -75,6 +75,8 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                    help="Mức chất lượng/chi phí: tiet-kiem | can-bang (mặc định) | cao-cap")
     p.add_argument("--to", dest="target", default="Tiếng Việt", help="Ngôn ngữ đích (mặc định: Tiếng Việt)")
     p.add_argument("--from", dest="source", default="tự nhận diện", help="Ngôn ngữ nguồn (mặc định: tự nhận diện)")
+    p.add_argument("--huong-dan", "--prompt", dest="brief", type=Path,
+                   help="File hướng dẫn dịch riêng cho cuốn/bộ sách (Markdown), đưa vào prompt của mọi bước")
     p.add_argument("--glossary", type=Path, help="File JSON {\"nguồn\": \"đích\"} nạp thêm vào sổ tay")
     p.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="Số ký tự tối đa mỗi đoạn gửi đi")
     p.add_argument("--workers", type=int, default=4, help="Số chương xử lý song song (mặc định: 4)")
@@ -235,6 +237,7 @@ def _run(args, progress) -> int:
         source_lang=args.source,
         effort=_effort(args, genre.effort),
         note=getattr(args, "note", ""),
+        brief=args.brief.read_text(encoding="utf-8") if args.brief else "",
         polish=preset["polish"] if polish is None else polish,
     )
     llm, analysis_llm = _chains(args)
@@ -298,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         return _run(args, _ProgressPrinter())
-    except (KeyError, ValueError) as e:
+    except (KeyError, ValueError, OSError) as e:
         _err(f"Lỗi: {e}")
         return 2
     except ProviderUnavailable as e:

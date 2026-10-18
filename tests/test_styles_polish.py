@@ -184,3 +184,35 @@ def test_cli_learn_style_roundtrip(tmp_path, monkeypatch):
     profile = load_style(path=out)
     assert profile.name == "Lý Lan - HP" and profile.key == "lylan-hp"
     assert profile.examples == (("", "Một đoạn văn mẫu."),)
+
+
+# ---- hướng dẫn dịch riêng (--huong-dan) --------------------------------
+
+EXAMPLES = Path(__file__).parent.parent / "examples" / "discworld"
+
+
+def test_brief_in_all_prompts_and_cache_key(tmp_path):
+    brief = (EXAMPLES / "huong-dan-dich.md").read_text(encoding="utf-8")
+    t, p = make(tmp_path=tmp_path, brief=brief)
+    t.translate_chunk("DEATH looked up.")
+    t.analyze_section(__import__("booktranslator.document", fromlist=["Section"]).Section(
+        "c", "C", "text", ["Rincewind ran away from DEATH as fast as he could."]))
+    assert all("Thần Chết" in c["system"] and "HƯỚNG DẪN DỊCH RIÊNG" in c["system"] for c in p.calls)
+    assert len(p.calls) == 2  # dịch nháp + biên tập
+    assert "HƯỚNG DẪN DỊCH RIÊNG" in p.analysis_calls[0]["system"]
+    t2, p2 = make(tmp_path=tmp_path, brief=brief + "\n- thêm ghi chú")
+    t2.translate_chunk("DEATH looked up.")
+    assert len(p2.calls) == 2  # đổi hướng dẫn thì dịch lại
+
+
+def test_discworld_starter_kit_via_cli(tmp_path, monkeypatch):
+    chain, provider = fake_chain()
+    monkeypatch.setattr(cli, "build_chain", lambda *a, **kw: chain)
+    src = tmp_path / "colour.md"
+    src.write_text("# Chapter 1\n\n" + "Rincewind ran through Ankh-Morpork with the Luggage. " * 30, encoding="utf-8")
+    args = ["dich-thu", str(src), "-g", "comic", "-p", "lylan", "--huong-dan", str(EXAMPLES / "huong-dan-dich.md"),
+            "--glossary", str(EXAMPLES / "ten-rieng.json")]
+    assert cli.main(args) == 0
+    preview = (tmp_path / "colour.vi.md.preview.md").read_text(encoding="utf-8")
+    assert "Cái Rương" in preview
+    assert cli.main(["dich-thu", str(src), "--huong-dan", str(tmp_path / "khong-co.md")]) == 2
