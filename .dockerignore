@@ -1,0 +1,5 @@
+.git
+.bt_cache
+__pycache__
+*.egg-info
+tests
