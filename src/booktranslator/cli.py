@@ -1,4 +1,4 @@
-"""Giao diện dòng lệnh: `booktranslator translate ...` và `booktranslator glossary ...`."""
+"""Giao diện dòng lệnh: `booktranslator genres | analyze | translate`."""
 
 from __future__ import annotations
 
@@ -12,9 +12,12 @@ from pathlib import Path
 import anthropic
 
 from . import __version__
+from .bible import StoryBible
 from .cache import TranslationCache
 from .chunker import DEFAULT_CHUNK_CHARS
-from .formats import SUPPORTED, default_output_path, read_sample, translate_file
+from .document import SUPPORTED, default_output_path, load_document
+from .genres import BUILTIN, load_genre
+from .pipeline import analyze_document, translate_document
 from .translator import DEFAULT_MODEL, TranslationError, Translator, TranslatorConfig
 
 
@@ -29,43 +32,49 @@ def _load_glossary(path: Path | None) -> dict[str, str]:
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("input", type=Path, help=f"File sách ({', '.join(SUPPORTED)})")
+    p.add_argument(
+        "-g", "--genre", default="general", choices=list(BUILTIN),
+        help="Chế độ dịch theo thể loại (xem `booktranslator genres`)",
+    )
+    p.add_argument("--genre-file", type=Path, help="File JSON định nghĩa thể loại riêng (ghi đè --genre)")
     p.add_argument("--to", dest="target", default="Tiếng Việt", help="Ngôn ngữ đích (mặc định: Tiếng Việt)")
     p.add_argument("--from", dest="source", default="tự nhận diện", help="Ngôn ngữ nguồn (mặc định: tự nhận diện)")
     p.add_argument("--model", default=DEFAULT_MODEL, help=f"Model Claude (mặc định: {DEFAULT_MODEL})")
     p.add_argument(
-        "--effort",
-        default="medium",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Mức suy nghĩ của mô hình; cao hơn thì dịch kỹ hơn nhưng tốn hơn (mặc định: medium)",
+        "--effort", choices=["low", "medium", "high", "xhigh", "max"],
+        help="Mức suy nghĩ của mô hình; mặc định theo thể loại",
     )
+    p.add_argument("--glossary", type=Path, help="File JSON {\"nguồn\": \"đích\"} nạp thêm vào sổ tay")
+    p.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="Số ký tự tối đa mỗi đoạn gửi đi")
+    p.add_argument("--workers", type=int, default=4, help="Số chương xử lý song song (mặc định: 4)")
+    p.add_argument("--cache-dir", type=Path, help="Thư mục lưu tiến độ (mặc định: .bt_cache cạnh file kết quả)")
     p.add_argument(
-        "--no-fallback",
-        action="store_true",
+        "--no-fallback", action="store_true",
         help="Tắt fallback phía server khi mô hình từ chối (cần khi dùng Bedrock/Vertex/Foundry)",
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="booktranslator", description="Dịch sách bằng Claude.")
+    parser = argparse.ArgumentParser(prog="booktranslator", description="Dịch sách bằng Claude theo thể loại.")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("genres", help="Liệt kê các chế độ dịch theo thể loại")
+
+    a = sub.add_parser("analyze", help="Đọc sách, lập sổ tay truyện (nhân vật, tên riêng, xưng hô, sự kiện) để duyệt trước")
+    _add_common(a)
+    a.add_argument("-o", "--output", type=Path, help="File sổ tay JSON (mặc định: <tên sách>.bible.json)")
 
     t = sub.add_parser("translate", help="Dịch một cuốn sách")
     _add_common(t)
     t.add_argument("-o", "--output", type=Path, help="File kết quả (mặc định: <tên>.<mã ngôn ngữ>.<đuôi>)")
     t.add_argument("--lang-code", default="vi", help="Mã ngôn ngữ đích ghi vào EPUB và tên file (mặc định: vi)")
-    t.add_argument("--style", default="", help="Yêu cầu văn phong, ví dụ: 'xưng hô ta - ngươi, giọng cổ trang'")
-    t.add_argument("--glossary", type=Path, help="File JSON bảng thuật ngữ {\"nguồn\": \"đích\"}")
-    t.add_argument("--auto-glossary", action="store_true", help="Tự tạo bảng thuật ngữ trước khi dịch")
-    t.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="Số ký tự tối đa mỗi đoạn gửi đi")
-    t.add_argument("--workers", type=int, default=4, help="Số chương EPUB dịch song song (mặc định: 4)")
-    t.add_argument("--cache-dir", type=Path, help="Thư mục lưu tiến độ (mặc định: .bt_cache cạnh file kết quả)")
-
-    g = sub.add_parser("glossary", help="Tạo bảng thuật ngữ từ sách để chỉnh tay trước khi dịch")
-    _add_common(g)
-    g.add_argument("-o", "--output", type=Path, required=True, help="File JSON kết quả")
-    g.add_argument("--max-terms", type=int, default=80)
+    t.add_argument("--style", default="", help="Yêu cầu văn phong riêng, ưu tiên hơn quy tắc thể loại")
+    t.add_argument("--bible", type=Path, help="File sổ tay truyện (mặc định: <file kết quả>.bible.json)")
+    t.add_argument("--no-analyze", action="store_true", help="Bỏ bước đọc trước cả sách (rẻ hơn, kém nhất quán hơn)")
+    t.add_argument("--no-fix", action="store_true", help="Chỉ báo cáo lỗi nhất quán, không tự dịch lại")
+    t.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
     return parser
 
 
@@ -73,9 +82,9 @@ class _ProgressPrinter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
 
-    def __call__(self, name: str, done: int, total: int) -> None:
+    def __call__(self, step: str, name: str, done: int, total: int) -> None:
         with self._lock:
-            print(f"  [{name}] {done}/{total} đoạn", file=sys.stderr, flush=True)
+            print(f"  [{step}] {name}: {done}/{total}", file=sys.stderr, flush=True)
 
 
 def _print_usage(translator: Translator) -> None:
@@ -88,60 +97,88 @@ def _print_usage(translator: Translator) -> None:
     )
 
 
+def _print_genres() -> None:
+    for g in BUILTIN.values():
+        print(f"{g.key:<9} {g.name}")
+        print(f"          {g.description} (effort mặc định: {g.effort})")
+
+
+def _bible_summary(bible: StoryBible) -> str:
+    return (
+        f"{len(bible.entities)} tên riêng/thuật ngữ, {len(bible.addressing)} cặp xưng hô, "
+        f"{len(bible.sections)} chương đã tóm tắt"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
 
+    if args.command == "genres":
+        _print_genres()
+        return 0
     if not args.input.exists():
         print(f"Không tìm thấy file: {args.input}", file=sys.stderr)
         return 2
 
+    genre = load_genre(args.genre, args.genre_file)
     config = TranslatorConfig(
         target_lang=args.target,
         source_lang=args.source,
         model=args.model,
-        effort=args.effort,
+        effort=args.effort or genre.effort,
         use_fallback=not args.no_fallback,
     )
+    progress = _ProgressPrinter()
+
+    if args.command == "analyze":
+        output = args.output or args.input.with_name(f"{args.input.stem}.bible.json")
+        cache_path = (args.cache_dir or output.parent / ".bt_cache") / f"{output.name}.jsonl"
+    else:
+        output = args.output or default_output_path(args.input, args.lang_code)
+        cache_path = (args.cache_dir or output.parent / ".bt_cache") / f"{output.name}.jsonl"
+        config.style = args.style
 
     try:
-        if args.command == "glossary":
-            translator = Translator(config)
-            glossary = translator.build_glossary(read_sample(args.input), args.max_terms)
-            args.output.write_text(json.dumps(glossary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            print(f"Đã ghi {len(glossary)} thuật ngữ vào {args.output}", file=sys.stderr)
+        doc = load_document(args.input, args.chunk_chars)
+        bible_path = output if args.command == "analyze" else (args.bible or output.with_name(f"{output.name}.bible.json"))
+        bible = StoryBible.load(bible_path)
+        bible.import_glossary(_load_glossary(args.glossary))
+        cache = TranslationCache(cache_path, load=not getattr(args, "fresh", False))
+        translator = Translator(config, genre, bible, cache=cache)
+        print(f"Thể loại: {genre.name} · effort: {config.effort} · {len(doc.sections)} chương", file=sys.stderr)
+
+        if args.command == "analyze" or not args.no_analyze:
+            analyze_document(translator, doc, args.workers, progress)
+            bible.save()
+            print(f"Sổ tay truyện: {bible_path} ({_bible_summary(bible)})", file=sys.stderr)
+        if args.command == "analyze":
+            print("Hãy xem và sửa sổ tay nếu cần, rồi chạy `translate --bible` với file này.", file=sys.stderr)
             _print_usage(translator)
             return 0
 
-        output = args.output or default_output_path(args.input, args.lang_code)
-        cache_dir = args.cache_dir or output.parent / ".bt_cache"
-        cache = TranslationCache(cache_dir / f"{output.name}.jsonl")
-        config.style = args.style
-        config.glossary = _load_glossary(args.glossary)
-        translator = Translator(config, cache=cache)
-
-        if args.auto_glossary:
-            print("Đang tạo bảng thuật ngữ...", file=sys.stderr)
-            auto = translator.build_glossary(read_sample(args.input))
-            config.glossary = {**auto, **config.glossary}  # thuật ngữ người dùng ưu tiên hơn
-            glossary_path = output.with_name(output.stem + ".glossary.json")
-            glossary_path.write_text(json.dumps(config.glossary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            print(f"Bảng thuật ngữ ({len(config.glossary)} mục): {glossary_path}", file=sys.stderr)
-
-        if len(cache):
-            print(f"Tiếp tục từ {len(cache)} đoạn đã dịch trước đó", file=sys.stderr)
-        translate_file(
-            args.input,
-            output,
-            translator,
-            chunk_chars=args.chunk_chars,
-            workers=args.workers,
-            lang_code=args.lang_code,
-            progress=_ProgressPrinter(),
+        if args.no_analyze and args.workers > 1:
+            print("Lưu ý: không phân tích trước mà dịch song song thì tên mới có thể lệch giữa các chương; "
+                  "nên dùng --workers 1.", file=sys.stderr)
+        result = translate_document(
+            translator, doc, output, workers=args.workers, lang_code=args.lang_code, fix=not args.no_fix, progress=progress
         )
+        bible.save()
+        report_path = output.with_name(f"{output.name}.consistency.md")
+        report_path.write_text(result.report, encoding="utf-8")
+        untranslated = sum(1 for i in result.issues if i.problem == "untranslated")
         print(f"Xong: {output}", file=sys.stderr)
+        print(f"Sổ tay: {bible_path} ({_bible_summary(bible)})", file=sys.stderr)
+        print(
+            f"Nhất quán: đã sửa {result.fixed_chunks} đoạn, còn {untranslated} lỗi sót tên, "
+            f"{len(result.issues) - untranslated} chỗ cần xem lại → {report_path}",
+            file=sys.stderr,
+        )
         _print_usage(translator)
         return 0
+    except (KeyError, ValueError) as e:
+        print(f"Lỗi: {e}", file=sys.stderr)
+        return 2
     except TranslationError as e:
         print(f"Lỗi dịch: {e}", file=sys.stderr)
         print("Tiến độ đã được lưu; chạy lại cùng lệnh để tiếp tục.", file=sys.stderr)

@@ -1,0 +1,11 @@
+{
+  "base": "scifi",
+  "key": "cyberpunk",
+  "name": "Cyberpunk",
+  "description": "Khoa học viễn tưởng đô thị đen tối: tập đoàn, hacker, cấy ghép cơ thể.",
+  "style": "- Giọng văn bụi bặm, gai góc, nhịp nhanh; đối thoại dùng tiếng lóng đường phố tự nhiên.\n- Thuật ngữ công nghệ, tên chương trình và lệnh máy tính giữ nguyên tiếng Anh.\n- Xưng hô giữa dân giang hồ đường phố: tao - mày, bọn tao; với khách hàng/tập đoàn: tôi - ông/bà.",
+  "naming": "- Tên người, biệt danh hacker, tên tập đoàn, tên quận giữ nguyên chính tả gốc.\n- Biệt danh có nghĩa rõ dùng như danh xưng thì dịch nghĩa và viết hoa (the Ghost → Bóng Ma).",
+  "entity_types": ["character", "ai", "corporation", "gang", "place", "implant", "program", "term"],
+  "analysis_focus": "nhân vật và biệt danh, tập đoàn, băng nhóm, cấy ghép, chương trình/virus, quan hệ thuê mướn và phản bội.",
+  "effort": "medium"
+}

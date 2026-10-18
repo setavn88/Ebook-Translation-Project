@@ -12,11 +12,11 @@ from pathlib import Path
 class TranslationCache:
     """Kho key-value dạng JSON lines; mỗi dòng là một chunk đã dịch xong."""
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, load: bool = True):
         self.path = path
         self._data: dict[str, str] = {}
         self._lock = threading.Lock()
-        if path and path.exists():
+        if load and path and path.exists():
             with path.open(encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
