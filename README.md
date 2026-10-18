@@ -27,6 +27,8 @@ Trình duyệt tự mở trang `http://127.0.0.1:8765`. Giao diện chạy trên
 4. **Sổ tay tên riêng:** bảng tên và cách xưng hô, sửa trực tiếp.
 5. **Dịch & kết quả:** *Dịch thử*, rồi đọc bản gốc / bản nháp / bản biên tập đặt cạnh nhau. Khi đã ưng thì bấm *Dịch cả cuốn*. Có nút *Dừng*; lần sau chạy tiếp từ chỗ dừng.
 
+**Tắt phần mềm không mất gì.** Cài đặt, lịch sử chạy và nhật ký được lưu trong thư mục làm việc (`.bt_ui`), bản dịch từng đoạn lưu trong `.bt_cache`. Mở lại, tab 5 hiện tác vụ dở dang kèm tiến độ (ví dụ "4/6 đoạn, 67%") và nút **▶ Dịch tiếp**. Đoạn đã dịch không tốn hạn mức lần nữa.
+
 Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và tab **⚙ Kết nối AI** (xem trạng thái, nhập API key tạm thời).
 
 ## Dùng gói Claude Pro/Max qua Claude Code (không tốn tiền API)

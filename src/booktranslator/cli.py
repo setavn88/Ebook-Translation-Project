@@ -16,6 +16,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 
 import anthropic
@@ -146,8 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 class _ProgressPrinter:
+    """In tiến độ ra màn hình; nếu có `track()` thì ghi thêm file <kết quả>.progress.json cho giao diện đọc."""
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self.path: Path | None = None
+        self.data: dict = {}
+        self._per_section: dict[tuple[str, str], int] = {}
+
+    def track(self, path: Path, book: Path, totals: dict[str, int]) -> None:
+        self.path = path
+        self.data = {"book": book.name, "step": "", "done": 0, "total": 0, "totals": totals, "finished": False}
 
     def __call__(self, step: str, name, done: int, total: int | None = None) -> None:
         if total is None:  # (bước, đã xong, tổng)
@@ -155,6 +165,30 @@ class _ProgressPrinter:
         with self._lock:
             label = f"{name}: " if name else ""
             print(f"  [{step}] {label}{done}/{total}", file=sys.stderr, flush=True)
+            if self.path and step in self.data["totals"]:
+                book_total = self.data["totals"][step]
+                if step == "Dịch":
+                    # Cả cuốn = tổng số đoạn đã xong của mọi chương (kể cả đoạn lấy từ bản đã lưu).
+                    self._per_section[(step, str(name))] = done
+                    book_done = sum(v for (st, _), v in self._per_section.items() if st == step)
+                else:
+                    # Phân tích báo số chương cộng dồn trong số chương CÒN LẠI; cộng thêm chương đã phân tích từ trước.
+                    book_done = book_total - total + done
+                self.data |= {"step": step, "done": min(book_done, book_total), "total": book_total}
+                self._write()
+
+    def finish(self) -> None:
+        if self.path:
+            with self._lock:
+                self.data |= {"finished": True, "done": self.data.get("total", 0)}
+                self._write()
+
+    def _write(self) -> None:
+        self.data["updated"] = time.time()
+        try:
+            self.path.write_text(json.dumps(self.data, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
 
 
 def _err(msg: str) -> None:
@@ -277,11 +311,18 @@ def _run(args, progress) -> int:
         _err(translator.usage_report())
         return 0
 
+    if isinstance(progress, _ProgressPrinter):
+        totals = {"Phân tích": len(doc.sections)}
+        if args.cmd == "translate":
+            totals["Dịch"] = sum(len(s.chunks) for s in doc.sections)
+        progress.track(output.with_name(f"{output.name}.progress.json"), args.input, totals)
+
     if args.cmd == "analyze" or not args.no_analyze:
         analyze_document(translator, doc, args.workers, progress)
         bible.save()
         _err(f"Sổ tay truyện: {bible_path} ({_bible_summary(bible)})")
     if args.cmd == "analyze":
+        progress.finish()
         _err("Hãy xem và sửa sổ tay nếu cần, rồi chạy `dich --so-tay` với file này.")
         _err(translator.usage_report())
         return 0
@@ -292,6 +333,7 @@ def _run(args, progress) -> int:
         translator, doc, output, workers=args.workers, lang_code=args.lang_code, fix=not args.no_fix, progress=progress
     )
     bible.save()
+    progress.finish()
     report_path = output.with_name(f"{output.name}.consistency.md")
     report_path.write_text(result.report, encoding="utf-8")
     untranslated = sum(1 for i in result.issues if i.problem == "untranslated")

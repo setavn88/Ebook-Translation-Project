@@ -256,3 +256,15 @@ def test_cli_wait_option(monkeypatch):
     cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--cho-han-muc", "48"]))
     cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--khong-cho"]))
     assert seen == [12, 12, 48, 48, 0, 0]
+
+
+def test_cli_writes_progress_file(tmp_path, fake_api):
+    src = tmp_path / "story.md"
+    src.write_text(STORY, encoding="utf-8")
+    assert cli.main(["dich", str(src)]) == 0
+    progress = json.loads((tmp_path / "story.vi.md.progress.json").read_text(encoding="utf-8"))
+    assert progress["finished"] is True and progress["step"] == "Dịch"
+    assert progress["done"] == progress["total"] == 2 and progress["book"] == "story.md"
+    assert cli.main(["phan-tich", str(src)]) == 0
+    analysis = json.loads((tmp_path / "story.bible.json.progress.json").read_text(encoding="utf-8"))
+    assert analysis["finished"] is True and analysis["total"] == 2

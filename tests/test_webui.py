@@ -158,3 +158,53 @@ def test_claude_path_and_connection_test(server, tmp_path, monkeypatch):
     assert status == 200 and r["providers"]["claude-code"] is True
     status, r = call("/api/test-claude", "POST")
     assert status == 200 and r["ok"] is True and r["path"] == str(exe)
+
+
+# ---- tắt phần mềm mở lại: không mất gì ------------------------------------
+
+
+def _wait_done(call, job_id):
+    for _ in range(100):
+        status, info = call(f"/api/jobs/{job_id}")
+        if info["status"] != "running":
+            return info
+        time.sleep(0.1)
+    raise AssertionError("tác vụ không kết thúc")
+
+
+def test_jobs_settings_and_progress_survive_restart(server):
+    app, call, _ = server
+    # cài đặt lưu trên ổ đĩa
+    assert call("/api/settings", "PUT", {"genre": "comic", "providers": ["claude-code"]})[0] == 200
+    # một tác vụ chạy xong
+    app.build_job = lambda opts: ("translate", ["the-loai"], ["book.vi.epub"])
+    status, job = call("/api/jobs", "POST", {"action": "translate", "book": "book.epub"})
+    _wait_done(call, job["id"])
+    # tiến trình dịch ghi file tiến độ
+    (app.workspace / "book.vi.epub.progress.json").write_text(json.dumps({"step": "Dịch", "done": 37, "total": 120}))
+    # một tác vụ đang chạy dở thì phần mềm bị tắt
+    (app.jobs_dir / "dead.json").write_text(json.dumps({
+        "id": "dead", "action": "translate", "argv": [], "outputs": ["book.vi.epub"], "opts": {"book": "book.epub"},
+        "status": "running", "returncode": None, "started": time.time() + 10}))
+
+    app2 = App(app.workspace)  # mở lại phần mềm
+    state = app2.state()
+    assert state["settings"] == {"genre": "comic", "providers": ["claude-code"]}
+    last = state["jobs"][0]
+    assert last["id"] == "dead" and last["status"] == "interrupted"
+    assert last["opts"] == {"book": "book.epub"} and last["progress"]["done"] == 37
+    done = app2.jobs[job["id"]]
+    assert done.status == "done" and any("comic" in line for line in done.lines)  # nhật ký còn nguyên
+    # file nội bộ không lẫn vào danh sách file của người dùng
+    files = state["files"]
+    assert not any(".bt_ui" in f or f.endswith(".progress.json") for group in files.values() for f in group)
+
+
+def test_old_jobs_are_pruned(tmp_path):
+    from booktranslator.webui import MAX_JOBS_KEPT
+
+    app = App(tmp_path)
+    for i in range(MAX_JOBS_KEPT + 5):
+        (app.jobs_dir / f"j{i}.json").write_text(json.dumps({
+            "id": f"j{i}", "action": "preview", "argv": [], "outputs": [], "status": "done", "started": i}))
+    assert len(App(tmp_path).jobs) == MAX_JOBS_KEPT

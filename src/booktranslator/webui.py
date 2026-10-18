@@ -41,21 +41,56 @@ def _safe_name(name: str) -> str:
     return name or "file"
 
 
+MAX_JOBS_KEPT = 30
+
+
 class Job:
-    def __init__(self, job_id: str, action: str, argv: list[str], outputs: list[str]):
+    """Một lần chạy. Bản ghi (.json) và nhật ký (.log) được lưu trong <thư mục làm việc>/.bt_ui/jobs
+    để tắt phần mềm mở lại vẫn thấy lịch sử và bấm "Dịch tiếp"."""
+
+    def __init__(self, job_id: str, action: str, argv: list[str], outputs: list[str], opts: dict, folder: Path):
         self.id = job_id
         self.action = action
         self.argv = argv
         self.outputs = outputs
+        self.opts = opts
+        self.folder = folder
         self.lines: list[str] = []
         self.status = "running"
         self.returncode: int | None = None
         self.started = time.time()
         self.proc: subprocess.Popen | None = None
 
+    @property
+    def record_path(self) -> Path:
+        return self.folder / f"{self.id}.json"
+
+    @property
+    def log_path(self) -> Path:
+        return self.folder / f"{self.id}.log"
+
+    def save(self) -> None:
+        data = {k: getattr(self, k) for k in ("id", "action", "argv", "outputs", "opts", "status", "returncode", "started")}
+        try:
+            self.record_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    @classmethod
+    def load(cls, path: Path) -> "Job":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        job = cls(data["id"], data["action"], data["argv"], data["outputs"], data.get("opts", {}), path.parent)
+        job.status, job.returncode, job.started = data["status"], data.get("returncode"), data["started"]
+        if job.log_path.exists():
+            job.lines = job.log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-1000:]
+        if job.status == "running":  # phần mềm bị tắt khi tác vụ đang chạy
+            job.status = "interrupted"
+            job.save()
+        return job
+
     def summary(self) -> dict:
         return {"id": self.id, "action": self.action, "status": self.status, "returncode": self.returncode,
-                "started": self.started, "outputs": self.outputs}
+                "started": self.started, "outputs": self.outputs, "opts": self.opts}
 
 
 class App:
@@ -65,8 +100,49 @@ class App:
         self.token = secrets.token_urlsafe(24)
         self.keys: dict[str, str] = {}  # API key nhập trên giao diện: chỉ giữ trong bộ nhớ
         self.claude_path = ""  # đường dẫn claude do người dùng chỉ định trên giao diện
+        self.ui_dir = self.workspace / ".bt_ui"
+        self.jobs_dir = self.ui_dir / "jobs"
+        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.settings_path = self.ui_dir / "settings.json"
         self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self._load_jobs()
+
+    def _load_jobs(self) -> None:
+        records = sorted(self.jobs_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for old in records[:-MAX_JOBS_KEPT]:  # dọn bớt lịch sử cũ
+            for f in (old, old.with_suffix(".log")):
+                f.unlink(missing_ok=True)
+        for path in records[-MAX_JOBS_KEPT:]:
+            try:
+                job = Job.load(path)
+            except (OSError, ValueError, KeyError):
+                continue
+            self.jobs[job.id] = job
+
+    # ---- cài đặt giao diện (lưu trên ổ đĩa, không phụ thuộc trình duyệt) ------
+
+    def load_settings(self) -> dict:
+        try:
+            data = json.loads(self.settings_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_settings(self, data: dict) -> None:
+        if not isinstance(data, dict):
+            raise ValueError("Cài đặt không hợp lệ")
+        self.settings_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def progress(self, job: Job) -> dict | None:
+        """Tiến độ cả cuốn (file <kết quả>.progress.json do tiến trình dịch ghi ra)."""
+        if job.action not in ("translate", "analyze") or not job.outputs:
+            return None
+        try:
+            path = self.resolve(job.outputs[0])
+            return json.loads(path.with_name(path.name + ".progress.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, PermissionError):
+            return None
 
     # ---- file trong thư mục làm việc -------------------------------------
 
@@ -86,7 +162,11 @@ class App:
         return path.resolve().relative_to(self.workspace).as_posix()
 
     def list_files(self) -> dict:
-        files = sorted(p for p in self.workspace.rglob("*") if p.is_file() and ".bt_cache" not in p.parts)
+        files = sorted(
+            p for p in self.workspace.rglob("*")
+            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(self.workspace).parts)
+            and not p.name.endswith(".progress.json")
+        )
         rels = [self.rel(p) for p in files]
         return {
             "books": [r for r in rels if r.lower().endswith(SUPPORTED) and ".vi." not in r and not r.endswith(".preview.md")],
@@ -149,7 +229,9 @@ class App:
             "styles": [{"key": s.key, "name": s.name, "description": s.description} for s in STYLES.values()],
             "presets": list(PRESETS),
             "providers": self.providers_status(),
-            "jobs": [j.summary() for j in self.jobs.values()],
+            "jobs": [j.summary() | {"progress": self.progress(j)}
+                     for j in sorted(self.jobs.values(), key=lambda j: j.started, reverse=True)],
+            "settings": self.load_settings(),
             "starter_available": (EXAMPLES_DIR / "discworld").is_dir(),
             "claude_path": self._claude_exe() or "",
         }
@@ -253,8 +335,9 @@ class App:
             if any(j.status == "running" for j in self.jobs.values()):
                 raise RuntimeError("Đang có một tác vụ chạy. Hãy chờ xong hoặc bấm Dừng.")
             action, argv, outputs = self.build_job(opts)
-            job = Job(secrets.token_hex(4), action, argv, outputs)
+            job = Job(secrets.token_hex(4), action, argv, outputs, opts, self.jobs_dir)
             self.jobs[job.id] = job
+            job.save()
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
         # Tiến trình con phải import được booktranslator kể cả khi chưa "pip install" (chạy từ mã nguồn).
         package_root = str(Path(__file__).resolve().parents[1])
@@ -273,16 +356,22 @@ class App:
 
     def _pump(self, job: Job) -> None:
         assert job.proc and job.proc.stdout
-        for raw in job.proc.stdout:
-            job.lines.append(raw.decode("utf-8", errors="replace").rstrip("\n"))
+        with job.log_path.open("a", encoding="utf-8") as log:
+            for raw in job.proc.stdout:
+                line = raw.decode("utf-8", errors="replace").rstrip("\n")
+                job.lines.append(line)
+                log.write(line + "\n")
+                log.flush()
         job.returncode = job.proc.wait()
         if job.status == "running":
             job.status = "done" if job.returncode == 0 else "error"
+        job.save()
 
     def cancel(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
         if job and job.proc and job.status == "running":
             job.status = "cancelled"
+            job.save()
             job.proc.terminate()
 
 
@@ -346,6 +435,11 @@ def make_handler(app: App):
                     if name in data:
                         app.keys[name] = str(data[name]).strip()
                 return self._json({"providers": app.providers_status()})
+            if path == "/api/settings":
+                if method == "PUT":
+                    app.save_settings(json.loads(self._body() or b"{}"))
+                    return self._json({"saved": True})
+                return self._json(app.load_settings())
             if method == "POST" and path == "/api/claude-path":
                 value = str(json.loads(self._body() or b"{}").get("path", "")).strip().strip('"')
                 if value and not os.path.isfile(value):
@@ -397,7 +491,8 @@ def make_handler(app: App):
                     return self._json(job.summary())
                 if method == "GET":
                     since = int(q("since") or 0)
-                    return self._json(job.summary() | {"lines": job.lines[since:], "next": len(job.lines)})
+                    return self._json(job.summary() | {"lines": job.lines[since:], "next": len(job.lines),
+                                                       "progress": app.progress(job)})
             return self._error("Không tìm thấy", 404)
 
         def do_GET(self):
