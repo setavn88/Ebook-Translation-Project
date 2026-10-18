@@ -50,7 +50,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .status { font-weight: 600; } .status.running { color: var(--accent); } .status.done { color: var(--ok); } .status.error, .status.cancelled { color: var(--err); }
 .tablewrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; table-layout: fixed; }
-th:last-child, td:last-child { width: 46px; }
+.tablewrap th:last-child, .tablewrap td:last-child { width: 46px; }
+.badge { white-space: nowrap; }
+#provTable td:last-child, #provTable th:last-child { width: 160px; }
 td .btn.danger { padding: 5px 9px; }
 th, td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; }
 td input { padding: 5px 7px; }
@@ -210,6 +212,20 @@ a { color: var(--accent); }
   <h2>Kết nối AI</h2>
   <p class="lead">Trạng thái các nhà cung cấp. API key nhập ở đây chỉ giữ trong bộ nhớ đến khi tắt giao diện — muốn lưu lâu dài, đặt biến môi trường (xem README).</p>
   <div class="card"><table id="provTable"></table></div>
+  <div class="card">
+    <h3>Claude Code (dùng gói Pro/Max — không tốn tiền API)</h3>
+    <ol style="margin:0 0 10px; padding-left:20px">
+      <li>Cài Claude Code: mở <b>PowerShell</b> và chạy <code>irm https://claude.ai/install.ps1 | iex</code>
+        (macOS: <code>curl -fsSL https://claude.ai/install.sh | bash</code>).</li>
+      <li>Mở cửa sổ PowerShell <b>mới</b>, gõ <code>claude</code>, đăng nhập bằng tài khoản Claude của bạn, rồi gõ <code>/exit</code>.</li>
+      <li>Bấm <b>Kiểm tra kết nối</b> bên dưới.</li>
+    </ol>
+    <div class="row"><button class="btn primary" id="testClaude">Kiểm tra kết nối</button><span id="claudeMsg" class="hint"></span></div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="claudePath" placeholder="Nếu vẫn không tìm thấy: dán đường dẫn tới claude.exe, vd. C:\Users\Ten\.local\bin\claude.exe" style="flex:1">
+      <button class="btn" id="setClaudePath">Dùng đường dẫn này</button></div>
+    <p class="hint">Tìm đường dẫn: trong PowerShell gõ <code>where.exe claude</code> (macOS: <code>which claude</code>).</p>
+  </div>
   <div class="card grid">
     <div><label for="kClaude">Claude API key (ANTHROPIC_API_KEY)</label><input type="password" id="kClaude" placeholder="sk-ant-..."></div>
     <div><label for="kDeepseek">DeepSeek API key</label><input type="password" id="kDeepseek" placeholder="sk-..."></div>
@@ -287,6 +303,7 @@ async function refresh(first = false) {
        <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
+  if (first && state.claude_path) $("claudePath").value = state.claude_path;
   updateGenreHint();
   renderProviders();
   $("results").innerHTML = f.results.length ? f.results.map(fileLink).join("") : '<li class="hint">Chưa có.</li>';
@@ -450,9 +467,30 @@ $("reloadPreview").onclick = loadPreview;
 // ---- API key ----------------------------------------------------------------------
 $("saveKeys").onclick = async () => {
   const r = await api("/api/keys", { method: "POST", body: JSON.stringify({ claude: $("kClaude").value, deepseek: $("kDeepseek").value, openai: $("kOpenai").value }) });
-  state.providers = r.providers; renderProviders();
-  document.querySelectorAll("#providers .badge").forEach((b, i) => { const ok = r.providers[PROVIDERS[i][0]]; b.className = "badge " + (ok ? "ok" : "no"); b.textContent = ok ? "sẵn sàng" : "chưa kết nối"; });
+  updateProviderBadges(r.providers);
   toast("Đã cập nhật kết nối.");
+};
+
+function updateProviderBadges(p) {
+  state.providers = p; renderProviders();
+  document.querySelectorAll("#providers .badge").forEach((b, i) => { const ok = p[PROVIDERS[i][0]]; b.className = "badge " + (ok ? "ok" : "no"); b.textContent = ok ? "sẵn sàng" : "chưa kết nối"; });
+}
+$("testClaude").onclick = async () => {
+  const btn = $("testClaude"); btn.disabled = true; $("claudeMsg").textContent = "Đang gọi thử Claude Code (tối đa ~1 phút)...";
+  try {
+    const r = await api("/api/test-claude", { method: "POST" });
+    $("claudeMsg").textContent = (r.ok ? "✓ " : "✗ ") + r.message;
+    $("claudeMsg").style.color = r.ok ? "var(--ok)" : "var(--err)";
+    if (r.path) $("claudePath").value = r.path;
+    await refresh(); updateProviderBadges(state.providers);
+  } catch (e) { $("claudeMsg").textContent = "✗ " + e.message; }
+  btn.disabled = false;
+};
+$("setClaudePath").onclick = async () => {
+  try {
+    const r = await api("/api/claude-path", { method: "POST", body: JSON.stringify({ path: $("claudePath").value }) });
+    updateProviderBadges(r.providers); toast(r.path ? "Đã dùng: " + r.path : "Chưa tìm thấy Claude Code");
+  } catch (e) { toast(e.message); }
 };
 
 refresh(true).catch((e) => toast("Không tải được trạng thái: " + e.message));

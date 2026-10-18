@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from .cli import PRESETS
 from .document import SUPPORTED, default_output_path
 from .genres import BUILTIN as GENRES
-from .providers import API_KEY_ENV
+from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, check_claude_code, find_claude
 from .styles import BUILTIN as STYLES
 
 HTML_FILE = Path(__file__).with_name("webui.html")
@@ -64,6 +64,7 @@ class App:
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.token = secrets.token_urlsafe(24)
         self.keys: dict[str, str] = {}  # API key nhập trên giao diện: chỉ giữ trong bộ nhớ
+        self.claude_path = ""  # đường dẫn claude do người dùng chỉ định trên giao diện
         self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
@@ -123,11 +124,22 @@ class App:
         except ImportError:
             has_openai_lib = False
         return {
-            "claude-code": bool(shutil.which("claude")),
+            "claude-code": bool(self._claude_exe()),
             "claude": has_key("claude"),
             "deepseek": has_key("deepseek") and has_openai_lib,
             "openai": has_key("openai") and has_openai_lib,
         }
+
+    def _claude_exe(self) -> str | None:
+        if self.claude_path and os.path.isfile(self.claude_path):
+            return self.claude_path
+        return find_claude()
+
+    def test_claude(self) -> dict:
+        if self.claude_path:
+            os.environ[CLAUDE_PATH_ENV] = self.claude_path
+        ok, message = check_claude_code()
+        return {"ok": ok, "message": message, "path": self._claude_exe() or ""}
 
     def state(self) -> dict:
         return {
@@ -139,6 +151,7 @@ class App:
             "providers": self.providers_status(),
             "jobs": [j.summary() for j in self.jobs.values()],
             "starter_available": (EXAMPLES_DIR / "discworld").is_dir(),
+            "claude_path": self._claude_exe() or "",
         }
 
     # ---- tác vụ -----------------------------------------------------------
@@ -245,6 +258,8 @@ class App:
         for name, value in self.keys.items():
             if value:
                 env[API_KEY_ENV[name]] = value
+        if exe := self._claude_exe():
+            env[CLAUDE_PATH_ENV] = exe
         job.proc = subprocess.Popen(
             [sys.executable, "-m", "booktranslator", *argv],
             cwd=self.workspace, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -327,6 +342,14 @@ def make_handler(app: App):
                     if name in data:
                         app.keys[name] = str(data[name]).strip()
                 return self._json({"providers": app.providers_status()})
+            if method == "POST" and path == "/api/claude-path":
+                value = str(json.loads(self._body() or b"{}").get("path", "")).strip().strip('"')
+                if value and not os.path.isfile(value):
+                    raise FileNotFoundError(f"Không có file: {value}")
+                app.claude_path = value
+                return self._json({"providers": app.providers_status(), "path": app._claude_exe() or ""})
+            if method == "POST" and path == "/api/test-claude":
+                return self._json(app.test_claude())
             if method == "POST" and path == "/api/starter":
                 return self._json({"files": app.install_starter()})
             if method == "POST" and path == "/api/upload":

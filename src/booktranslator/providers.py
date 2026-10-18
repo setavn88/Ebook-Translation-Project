@@ -145,6 +145,46 @@ class ClaudeProvider(Provider):
 
 # ---- Claude Code (dùng gói Claude Pro/Max đang đăng nhập) ------------
 
+CLAUDE_PATH_ENV = "BT_CLAUDE_PATH"
+
+
+def find_claude() -> str | None:
+    """Tìm lệnh `claude`: biến BT_CLAUDE_PATH, PATH, rồi các chỗ cài đặt quen thuộc.
+
+    Trên Windows, trình cài đặt hay đặt claude.exe ở %USERPROFILE%\\.local\\bin — thư mục này
+    nhiều khi chưa có trong PATH của cửa sổ đang chạy, nên phải tự dò.
+    """
+    custom = os.environ.get(CLAUDE_PATH_ENV, "").strip().strip('"')
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which("claude")
+    if found:
+        return found
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".local", "bin", "claude.exe"),
+        os.path.join(home, ".local", "bin", "claude"),
+        os.path.join(home, ".claude", "local", "claude.exe"),
+        os.path.join(home, ".claude", "local", "claude"),
+        os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ]
+    return next((c for c in candidates if c and os.path.isfile(c)), None)
+
+
+def check_claude_code(timeout: int = 90) -> tuple[bool, str]:
+    """Gọi thử Claude Code một câu rất ngắn để biết đã cài và đã đăng nhập chưa."""
+    exe = find_claude()
+    if not exe:
+        return False, "Không tìm thấy Claude Code trên máy (lệnh `claude`)."
+    try:
+        provider = ClaudeCodeProvider("claude-haiku-5-5", executable=exe, timeout=timeout)
+        result = provider.complete("Trả lời đúng một chữ: OK", "Kiểm tra kết nối", effort="low")
+    except ProviderUnavailable as e:
+        return False, f"Tìm thấy {exe} nhưng gọi thử thất bại: {e}"
+    return True, f"Kết nối được ({exe}). Trả lời thử: {result.text.strip()[:40]}"
+
 
 class ClaudeCodeProvider(Provider):
     """Gọi `claude -p` (Claude Code chế độ không tương tác) thay cho API.
@@ -158,7 +198,7 @@ class ClaudeCodeProvider(Provider):
 
     def __init__(self, model: str = DEFAULT_MODELS["claude-code"], executable: str | None = None, timeout: int = 900):
         super().__init__(model)
-        self.exe = executable or shutil.which("claude")
+        self.exe = executable or find_claude()
         if not self.exe:
             raise ProviderUnavailable("Chưa cài Claude Code (lệnh `claude`). Cài tại https://claude.com/claude-code rồi đăng nhập.")
         self.timeout = timeout

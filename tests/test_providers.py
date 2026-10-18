@@ -254,3 +254,33 @@ def test_claude_code_not_installed(monkeypatch):
 
 def test_parse_spec_claude_code_alias():
     assert parse_spec("cc,claude-code:claude-opus-5-5") == [("claude-code", None), ("claude-code", "claude-opus-5-5")]
+
+
+def test_find_claude_uses_env_and_common_locations(tmp_path, monkeypatch):
+    from booktranslator.providers import find_claude
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("BT_CLAUDE_PATH", raising=False)
+    assert find_claude() is None or not find_claude().startswith(str(tmp_path))
+    local = tmp_path / ".local" / "bin"
+    local.mkdir(parents=True)
+    (local / "claude.exe").write_text("")
+    assert find_claude() == str(local / "claude.exe")  # chỗ trình cài Windows hay đặt, chưa có trong PATH
+    custom = tmp_path / "khac" / "claude"
+    custom.parent.mkdir()
+    custom.write_text("")
+    monkeypatch.setenv("BT_CLAUDE_PATH", f'"{custom}"')
+    assert find_claude() == str(custom)
+
+
+def test_check_claude_code(fake_claude, monkeypatch):
+    from booktranslator.providers import check_claude_code
+
+    monkeypatch.setenv("BT_CLAUDE_PATH", fake_claude)
+    ok, msg = check_claude_code()
+    assert ok and fake_claude in msg
+    monkeypatch.setenv("FAKE_MODE", "limit")
+    ok, msg = check_claude_code()
+    assert not ok and "usage limit" in msg

@@ -136,3 +136,20 @@ def test_safe_name():
     assert _safe_name("../a/b/--evil.epub") == "evil.epub"
     assert _safe_name("C:\\\\Users\\\\x\\\\sách hay.epub") == "sách hay.epub"
     assert _safe_name("...") == "file"
+
+
+def test_claude_path_and_connection_test(server, tmp_path, monkeypatch):
+    from test_providers import FAKE_CLAUDE
+
+    app, call, _ = server
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.delenv("BT_CLAUDE_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert call("/api/claude-path", "POST", {"path": str(tmp_path / "khong-co.exe")})[0] == 400
+    exe = tmp_path / "claude"
+    exe.write_text(FAKE_CLAUDE)
+    exe.chmod(0o755)
+    status, r = call("/api/claude-path", "POST", {"path": str(exe)})
+    assert status == 200 and r["providers"]["claude-code"] is True
+    status, r = call("/api/test-claude", "POST")
+    assert status == 200 and r["ok"] is True and r["path"] == str(exe)
