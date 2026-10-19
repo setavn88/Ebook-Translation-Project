@@ -32,7 +32,21 @@ from .document import SUPPORTED, default_output_path, load_document
 from .genres import BUILTIN as GENRES, load_genre
 from .pipeline import analyze_document, preview_document, translate_document
 from .learnedits import append_guide, changes_from_docs, changes_from_edits_file, learn_from_changes, summarize, update_bible
-from .postedit import LEVELS, PostEditor, apply_edits_file, edits_path, parse_sections, postedit_document, save_edits
+from .postedit import (
+    CHAPTER_APPROVED,
+    CHAPTER_REVIEW,
+    LEVELS,
+    PostEditor,
+    apply_edits_file,
+    default_output,
+    edits_path,
+    existing_edits,
+    load_edits,
+    mark_chapters,
+    parse_sections,
+    postedit_document,
+    save_edits,
+)
 from .providers import ProviderUnavailable, build_chain, parse_spec
 from .styles import BUILTIN as STYLES, load_style
 from .stylelearn import learn_style
@@ -168,7 +182,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="File hướng dẫn hiệu đính (Markdown): yêu cầu riêng của bạn cho bước sửa")
     pe.add_argument("--muc-hieu-dinh", "--edit-level", dest="level", choices=list(LEVELS), default="vua",
                     help="nhe: chỉ sửa lỗi rõ · vua (mặc định): sửa cả câu thô, nghĩa đen · sau: viết lại mạnh tay")
-    pe.add_argument("--chuong", help="Chỉ hiệu đính các chương này, vd. \"1,3-5\" (mặc định: cả cuốn)")
+    pe.add_argument("--chuong", help="Chỉ hiệu đính các chương này, vd. \"1,3-5\" (mặc định: cả cuốn). Chỗ sửa của các chương "
+                                     "làm trước được giữ, file kết quả luôn là cả cuốn")
+    pe.add_argument("--lam-moi", action="store_true", help="Bỏ hết chỗ sửa và tiến độ duyệt cũ, bắt đầu lại")
     pe.add_argument("--yeu-cau", "--note", dest="note", default="", help="Yêu cầu riêng, ưu tiên cao nhất")
     pe.add_argument("--so-tay", "--bible", dest="bible", type=Path,
                     help="Sổ tay truyện (mặc định: <bản dịch>.bible.json nếu có)")
@@ -184,6 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("edits", type=Path, help="File <bản hiệu đính>.edits.json")
     ap.add_argument("--bo", default="", help="Số thứ tự các chỗ sửa muốn BỎ, vd. \"3,7-9\"")
     ap.add_argument("--nhan", default="", help="Số thứ tự các chỗ sửa muốn NHẬN lại, vd. \"3\"")
+    ap.add_argument("--duyet-chuong", default="", help="Đánh dấu các chương này là đã duyệt, vd. \"9\"")
     ap.add_argument("-o", "--output", type=Path, help="File kết quả (mặc định: như lúc hiệu đính)")
 
     le = sub.add_parser("hoc-tu-ban-sua", aliases=["learn-edits"],
@@ -354,7 +371,13 @@ def _numbers(spec: str) -> set[int]:
 
 def _apply_edits(args) -> int:
     decisions = {n: False for n in _numbers(args.bo)} | {n: True for n in _numbers(args.nhan)}
-    applied, failed = apply_edits_file(args.edits, decisions, args.output)
+    status = {}
+    if args.duyet_chuong:
+        data, _ = load_edits(args.edits)
+        translated = Path(data["translated"])
+        doc = load_document(translated if translated.is_absolute() else args.edits.parent / translated)
+        status = {sid: CHAPTER_APPROVED for sid in parse_sections(args.duyet_chuong, doc)}
+    applied, failed = apply_edits_file(args.edits, decisions, args.output, status)
     _err(f"Đã xuất lại bản hiệu đính: {applied} chỗ sửa được áp" + (f", {failed} chỗ không áp được" if failed else ""))
     return 0
 
@@ -376,7 +399,7 @@ def _postedit(args, progress) -> int:
     llm, _, _ = _chains(args)
     translated = load_document(args.ban_dich)
     source = load_document(args.ban_goc) if args.ban_goc else None
-    output = args.output or args.ban_dich.with_name(f"{args.ban_dich.stem}.hieu-dinh{args.ban_dich.suffix}")
+    output = args.output or default_output(args.ban_dich)
     if output.resolve() == args.ban_dich.resolve():
         _err("File kết quả phải khác bản dịch (bản dịch được giữ nguyên để duyệt lại)")
         return 2
@@ -393,14 +416,19 @@ def _postedit(args, progress) -> int:
     )
     if isinstance(progress, _ProgressPrinter):
         progress.track(output.with_name(f"{output.name}.progress.json"), args.ban_dich, {"Hiệu đính": 0})
-    result = postedit_document(editor, translated, source, output, sections, args.workers, progress)
     log_path = edits_path(output)
-    save_edits(log_path, args.ban_dich, args.ban_goc, output, args.level, result.edits)
+    previous, chapters = ([], {}) if args.lam_moi else existing_edits(log_path, args.ban_dich)
+    if previous:
+        _err(f"Giữ {len(previous)} chỗ sửa của các lần hiệu đính trước (thêm --lam-moi để bỏ)")
+    result = postedit_document(editor, translated, source, output, sections, args.workers, progress, previous)
+    done = sections if sections is not None else {s.id for s in translated.sections}
+    mark_chapters(chapters, sorted(done), CHAPTER_REVIEW, {s.id: s.title for s in translated.sections})
+    save_edits(log_path, args.ban_dich, args.ban_goc, output, args.level, result.edits, chapters)
     progress.finish()
-    failed = len(result.edits) - result.applied
-    _err(f"Xong: {output}")
-    _err(f"{result.applied} chỗ sửa đã áp" + (f", {failed} chỗ không áp được (câu cũ không khớp)" if failed else "")
-         + f" → duyệt từng chỗ trong {log_path}")
+    failed = sum(1 for e in result.edits if e.accepted and e.status == "failed")
+    _err(f"Xong: {output} (cả cuốn)")
+    _err(f"Lần này tìm được {result.new} chỗ sửa; cả cuốn đang áp {result.applied} chỗ"
+         + (f", {failed} chỗ không áp được (câu cũ không khớp)" if failed else "") + f" → duyệt trong {log_path}")
     _err(llm.usage_report())
     return 0
 

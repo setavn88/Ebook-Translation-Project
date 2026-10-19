@@ -283,3 +283,26 @@ def test_postedit_jobs_review_and_apply(server):
     data["output"] = "/tmp/evil.md"
     log.write_text(json.dumps(data), encoding="utf-8")
     assert call("/api/postedit/apply", "POST", {"path": log.name})[0] == 400
+
+
+def test_postedit_chapter_overview_and_status(server):
+    app, call, _ = server
+    ws = app.workspace
+    vi = ws / "b.vi.md"
+    vi.write_text("# Một\n\nCâu thô.\n\n# Hai\n\nCâu hai.", encoding="utf-8")
+    status, r = call("/api/postedit/chapters?book=b.vi.md")
+    assert status == 200 and r["edits_path"] == "" and r["output"] == "b.vi.hieu-dinh.md"
+    assert [(c["number"], c["title"], c["status"]) for c in r["chapters"]] == [(1, "Một", ""), (2, "Hai", "")]
+
+    from booktranslator.postedit import Edit, save_edits
+
+    out = ws / "b.vi.hieu-dinh.md"
+    log = ws / "b.vi.hieu-dinh.md.edits.json"
+    save_edits(log, vi, None, out, "vua", [Edit(1, "sec-0001", "Một", 1, "thô", "mượt")],
+               {"sec-0001": {"status": "review"}})
+    r = call("/api/postedit/chapters?book=b.vi.md")[1]
+    assert r["edits_path"] == log.name and r["chapters"][0]["status"] == "review" and r["chapters"][0]["edits"] == 1
+    status, res = call("/api/postedit/apply", "POST", {"path": log.name, "decisions": {"1": True}, "chapters": {"sec-0001": "approved"}})
+    assert status == 200 and res["applied"] == 1
+    assert call("/api/postedit/chapters?book=b.vi.md")[1]["chapters"][0]["status"] == "approved"
+    assert out.read_text(encoding="utf-8") == "# Một\n\nCâu mượt.\n\n# Hai\n\nCâu hai.\n"

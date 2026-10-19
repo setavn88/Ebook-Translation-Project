@@ -75,7 +75,11 @@ a { color: var(--accent); }
 @media (prefers-color-scheme: dark) { .edit del { background: #4a2420; color: #f5b5ad; } .edit ins { background: #1f3d2a; color: #a6e3bb; } }
 .edit.off .para { opacity: .55; } .edit.off ins { display: none; } .edit.off del { text-decoration: none; background: none; color: inherit; }
 .edit details { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
-#editList { max-height: 70vh; overflow: auto; }
+#editList { max-height: 65vh; overflow: auto; }
+.chlist { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.chlist tr[data-sid] { cursor: pointer; } .chlist tr[data-sid]:hover { background: var(--code); }
+.chlist tr.sel { background: var(--accent-soft); } .chlist tr.dim { color: var(--muted); }
+.chlist thead th { position: sticky; top: 0; background: var(--panel); }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   nav button { white-space: nowrap; width: auto; } main { padding: 16px; } }
 </style>
@@ -223,9 +227,9 @@ a { color: var(--accent); }
 <!-- ✎ Hiệu đính -->
 <section id="tab-postedit">
   <h2>Hiệu đính bản dịch</h2>
-  <p class="lead">AI đọc lại bản dịch đã có và <b>chỉ trả về những câu cần sửa</b> (cũ → mới) nên tốn ít token. Bạn duyệt từng chỗ, nhận hay bỏ, rồi xuất bản cuối. Thể loại, phong cách, hướng dẫn dịch, sổ tay lấy theo bước 2; AI hiệu đính là các AI ở ô "Người biên tập".</p>
+  <p class="lead">AI đọc lại bản dịch đã có và <b>chỉ trả về những câu cần sửa</b> (cũ → mới) nên tốn ít token. Làm <b>lần lượt từng chương</b>: AI hiệu đính một chương → bạn duyệt từng chỗ → bấm "Duyệt &amp; sang chương tiếp" → … → cuối cùng xuất cả cuốn. Thể loại, phong cách, hướng dẫn dịch, sổ tay lấy theo bước 2; AI hiệu đính là các AI ở ô "Người biên tập".</p>
   <div class="card">
-    <h3>1. Chạy hiệu đính</h3>
+    <h3>1. Cài đặt hiệu đính</h3>
     <div class="grid">
       <div><label for="peTranslated">Bản dịch cần hiệu đính</label><select id="peTranslated"></select></div>
       <div><label for="peSource">Bản gốc tiếng Anh (khuyên dùng)</label><select id="peSource"></select>
@@ -233,23 +237,35 @@ a { color: var(--accent); }
       <div><label for="peGuide">Hướng dẫn hiệu đính (prompt riêng của bạn)</label><select id="peGuide"></select>
         <div class="row" style="margin-top:6px"><button class="btn" id="peGuideNew">＋ Tạo hướng dẫn mẫu</button><button class="btn" id="peGuideEdit">✎ Sửa</button></div></div>
       <div><label for="peLevel">Mức hiệu đính</label><select id="peLevel"></select><p class="hint" id="peLevelHint"></p></div>
-      <div><label for="peChapters">Chỉ các chương (để trống = cả cuốn)</label><input type="text" id="peChapters" placeholder="vd. 9 hoặc 1,3-5">
-        <p class="hint">Nên thử 1 chương trước để xem AI sửa có hợp ý không.</p></div>
-      <div><label for="peNote">Yêu cầu thêm cho lần này</label><input type="text" id="peNote" placeholder="vd. đặc biệt chú ý lời thoại"></div>
+      <div><label for="peNote">Yêu cầu thêm</label><input type="text" id="peNote" placeholder="vd. đặc biệt chú ý lời thoại"></div>
+      <div><label for="peChapters">Hoặc chạy một lần nhiều chương</label>
+        <div class="row"><input type="text" id="peChapters" placeholder="vd. 1,3-5 · trống = cả cuốn" style="flex:1;width:auto">
+          <button class="btn" data-action="postedit">✎ Chạy</button></div>
+        <p class="hint">Không cần nếu làm từng chương ở mục 2.</p></div>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-action="postedit">✎ Hiệu đính</button>
-      <span class="hint">Tiến độ hiện ở bước 5. Xong sẽ có file <code>…hieu-dinh…</code> và file chỗ sửa <code>….edits.json</code> để duyệt bên dưới.</span></div>
   </div>
   <div class="card">
-    <div class="row"><h3 style="margin:0">2. Duyệt từng chỗ sửa</h3><select id="peEdits" style="width:auto;flex:1;min-width:220px"></select><button class="btn" id="peOpen">Mở</button></div>
-    <div id="peReview" style="display:none;margin-top:12px">
-      <div class="row"><span id="peSummary" class="hint" style="flex:1"></span>
+    <div class="row"><h3 style="margin:0">2. Hiệu đính &amp; duyệt từng chương</h3><span style="flex:1"></span>
+      <label style="margin:0;font-weight:500" title="Bìa, trang bản quyền, danh sách sách... thường không cần hiệu đính">
+        <input type="checkbox" id="peSkipShort" checked> bỏ qua chương rất ngắn (dưới 3 đoạn)</label>
+      <button class="btn primary" id="peExport">💾 Xuất cả cuốn</button></div>
+    <p class="hint" id="peProgress" style="margin:6px 0"></p>
+    <p id="peJob" style="margin:4px 0"></p>
+    <div class="tablewrap chlist"><table><thead><tr><th style="width:44px">#</th><th>Chương</th><th style="width:70px">Số đoạn</th><th style="width:110px">Chỗ sửa</th><th style="width:150px">Trạng thái</th></tr></thead>
+      <tbody id="peChapterList"></tbody></table></div>
+    <div id="peReview" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <div class="row"><h3 style="margin:0;flex:1" id="peChapterTitle"></h3>
         <select id="peFilter" style="width:auto"><option value="all">tất cả</option><option value="on">đang nhận</option><option value="off">đang bỏ</option><option value="failed">không áp được</option></select>
-        <button class="btn" id="peAll">Nhận tất cả</button><button class="btn" id="peNone">Bỏ tất cả</button>
-        <button class="btn primary" id="peApply">💾 Lưu &amp; xuất bản hiệu đính</button></div>
-      <div id="editList" style="margin-top:8px"></div>
-      <div id="peResult" style="margin-top:8px"></div>
+        <button class="btn" id="peAll">Nhận tất cả</button><button class="btn" id="peNone">Bỏ tất cả</button></div>
+      <p class="hint" id="peSummary" style="margin:6px 0"></p>
+      <div id="editList"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="peRunThis">✎ Hiệu đính chương này</button>
+        <button class="btn" id="peApprove">✓ Duyệt chương này</button>
+        <button class="btn primary" id="peNext"></button>
+        <button class="btn" id="peSkip" title="Đánh dấu chương này không cần hiệu đính">Bỏ qua chương này</button></div>
     </div>
+    <div id="peResult" style="margin-top:8px"></div>
   </div>
   <div class="card">
     <h3>3. Học từ bản sửa</h3>
@@ -372,7 +388,7 @@ $("nav").addEventListener("click", (e) => {
   if (b.dataset.tab === "brief") loadBrief();
   if (b.dataset.tab === "bible") loadBible();
   if (b.dataset.tab === "run") loadPreview();
-  if (b.dataset.tab === "postedit") $("leBible").textContent = bibleRel();
+  if (b.dataset.tab === "postedit") { $("leBible").textContent = bibleRel(); loadChapters(); }
 });
 
 function fillSelect(sel, items, value, empty) {
@@ -401,7 +417,6 @@ async function refresh(first = false) {
   fillSelect("peSource", f.books.map((b) => [b, b]), saved.peSource, "— không có —");
   fillSelect("peGuide", f.briefs.map((b) => [b, b]), saved.peGuide ?? (f.briefs.includes("huong-dan-hieu-dinh.md") ? "huong-dan-hieu-dinh.md" : ""), "— không dùng —");
   fillSelect("peLevel", state.levels.map((l) => [l.key, l.name]), saved.peLevel ?? (first ? "vua" : undefined));
-  fillSelect("peEdits", f.edits.map((x) => [x, x]), undefined, f.edits.length ? null : "— chưa có file chỗ sửa —");
   fillSelect("leTho", allBooks, saved.leTho, "— chọn —");
   fillSelect("leSua", allBooks, saved.leSua, "— chọn —");
   fillSelect("leGoc", f.books.map((b) => [b, b]), saved.leGoc, "— không có —");
@@ -542,7 +557,7 @@ function collect(action) {
     ban_dich: $("banDich").value, ban_goc: $("banGoc").value, style_name: $("styleName").value, style_output: $("styleOut").value,
     pe_translated: $("peTranslated").value, pe_source: $("peSource").value, pe_guide: $("peGuide").value, pe_level: $("peLevel").value,
     pe_chapters: $("peChapters").value, pe_note: $("peNote").value,
-    le_mode: document.querySelector('input[name="leMode"]:checked').value, edits_json: review ? review.path : $("peEdits").value,
+    le_mode: document.querySelector('input[name="leMode"]:checked').value, edits_json: pe.editsPath,
     le_tho: $("leTho").value, le_sua: $("leSua").value, le_goc: $("leGoc").value,
   };
 }
@@ -550,20 +565,22 @@ document.querySelectorAll("[data-action]").forEach((b) => b.onclick = async () =
   const action = b.dataset.action;
   if (action === "translate" && !confirm("Dịch cả cuốn sẽ dùng nhiều token / hạn mức. Bạn đã dịch thử và ưng ý chưa?")) return;
   if (action === "postedit" && !$("peChapters").value.trim() && !confirm("Hiệu đính cả cuốn sẽ dùng khá nhiều token / hạn mức. Bạn đã thử 1 chương chưa?")) return;
-  if (action === "learn_edits" && review && review.dirty && !confirm("Bạn chưa bấm \"Lưu & xuất\" — AI sẽ học theo lựa chọn nhận/bỏ đã lưu lần trước. Vẫn tiếp tục?")) return;
-  try {
-    const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(collect(action)) });
-    currentJob = job; logNext = 0; $("log").textContent = ""; $("outputs").innerHTML = "";
-    document.querySelector('nav button[data-tab="run"]').click();
-    poll();
-  } catch (e) { toast(e.message); }
+  if (action === "learn_edits" && pe.dirty) await peSave().catch(() => {});  // học theo đúng lựa chọn đang thấy
+  try { await startJob(collect(action), !["postedit", "learn_edits"].includes(action)); } catch (e) { toast(e.message); }
 });
+async function startJob(opts, showRunTab) {
+  const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(opts) });
+  currentJob = job; logNext = 0; $("log").textContent = ""; $("outputs").innerHTML = "";
+  if (showRunTab) document.querySelector('nav button[data-tab="run"]').click();
+  poll();
+}
 $("cancelBtn").onclick = async () => { if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" }); };
 const ACTION_LABEL = { preview: "Dịch thử", analyze: "Lập sổ tay", translate: "Dịch cả cuốn", learn: "Học phong cách", postedit: "Hiệu đính", learn_edits: "Học từ bản sửa" };
 const LABEL = { interrupted: "bị ngắt (phần mềm đã tắt giữa chừng) — tiến độ vẫn được lưu", waiting: "đang chờ hạn mức hồi lại…", running: "đang chạy…", done: "xong ✓", error: "lỗi — xem nhật ký", cancelled: "đã dừng (tiến độ đã lưu)" };
 async function poll() {
   if (!currentJob) return;
   const j = await api(`/api/jobs/${currentJob.id}?since=${logNext}`);
+  currentJob.status = j.status;
   if (j.lines.length) { const log = $("log"); log.textContent += j.lines.join("\n") + "\n"; log.scrollTop = log.scrollHeight; }
   logNext = j.next;
   const waiting = j.status === "running" && /tự chờ đến/.test($("log").textContent.split("\n").filter(Boolean).slice(-1)[0] || "");
@@ -572,10 +589,24 @@ async function poll() {
   showProgress(j);
   updateResume(j);
   document.querySelectorAll("[data-action]").forEach((b) => b.disabled = j.status === "running");
+  showPeJob(j);
   if (j.status === "running") return setTimeout(poll, 1000);
   $("outputs").innerHTML = j.status === "done" ? "<p><b>Kết quả:</b></p><ul class='files'>" + j.outputs.map(fileLink).join("") + "</ul>" : "";
   await refresh();
   if (j.action === "preview" && j.status === "done") { $("previewName").textContent = j.outputs[0]; showMarkdown(j.outputs[0]); }
+  if (j.action === "postedit" && j.opts && j.opts.pe_translated === $("peTranslated").value) loadChapters();
+  if (j.action === "learn_edits" && j.status === "done") toast("Đã học xong — xem hướng dẫn hiệu đính và sổ tay.");
+}
+function showPeJob(j) {
+  // Tác vụ hiệu đính / học từ bản sửa: hiện tiến độ ngay trong tab Hiệu đính.
+  if (!["postedit", "learn_edits"].includes(j.action)) { $("peJob").innerHTML = ""; return; }
+  const what = j.action === "learn_edits" ? "Học từ bản sửa" : `Hiệu đính ${j.opts && j.opts.pe_chapters ? "chương " + j.opts.pe_chapters : "cả cuốn"}`;
+  const p = j.progress, pct = p && p.total ? ` — ${p.done}/${p.total} nhóm đoạn (${Math.round(100 * p.done / p.total)}%)` : "";
+  const last = j.status === "error" ? ` · ${esc(($("log").textContent.trim().split("\n").slice(-1)[0] || ""))}` : "";
+  $("peJob").innerHTML = `<span class="status ${j.status}">${esc(what)}: ${esc(LABEL[j.status] || j.status)}${j.status === "running" ? pct : ""}</span>${last}
+    ${j.status === "running" ? ' <a href="#" id="peCancel">dừng</a>' : ""}`;
+  if ($("peCancel")) $("peCancel").onclick = (e) => { e.preventDefault(); $("cancelBtn").click(); };
+  if (pe.chapters.length) { renderChapters(); renderReview(); }
 }
 function bookName(j) { return (j.opts && (j.opts.book || j.opts.ban_dich)) || ""; }
 function showProgress(j) {
@@ -613,11 +644,23 @@ function restoreLastJob() {
 document.addEventListener("click", (e) => {
   const d = e.target.dataset || {};
   if (d.view) { e.preventDefault(); $("previewName").textContent = d.view; showMarkdown(d.view); }
-  if (d.review) { e.preventDefault(); document.querySelector('nav button[data-tab="postedit"]').click(); $("peEdits").value = d.review; openReview(d.review); }
+  if (d.review) { e.preventDefault(); document.querySelector('nav button[data-tab="postedit"]').click(); openReview(d.review); }
 });
 
-// ---- hiệu đính: duyệt từng chỗ sửa -------------------------------------------------
-let review = null;  // { path, data, dirty }
+// ---- hiệu đính: làm và duyệt lần lượt từng chương -------------------------------------
+// pe.data = nội dung file .edits.json (mọi chỗ sửa của cả cuốn + trạng thái duyệt từng chương)
+let pe = { book: "", chapters: [], editsPath: "", output: "", data: null, sel: null, dirty: false, skipped: new Set() };
+const CH_STATUS = { "": ["○ chưa hiệu đính", ""], review: ["● chờ duyệt", "no"], approved: ["✓ đã duyệt", "ok"], skipped: ["– bỏ qua", ""] };
+const enc = encodeURIComponent;
+function chStatus(c) { return pe.skipped.has(c.id) && !c.status ? "skipped" : c.status; }
+function chRunning(c) {
+  // Chương đang được hiệu đính bởi tác vụ hiện tại (để hiện "đang hiệu đính" thay vì trạng thái cũ).
+  const j = currentJob;
+  if (!j || j.status !== "running" || j.action !== "postedit" || !j.opts || j.opts.pe_translated !== pe.book) return false;
+  const spec = String(j.opts.pe_chapters || "").trim();
+  if (!spec) return true;
+  return spec.split(",").some((part) => { const [a, b] = part.split("-").map(Number); return c.number >= a && c.number <= (b || a); });
+}
 function markEdit(e) {
   // Đoạn văn với chỗ sửa tô màu: <del>cũ</del><ins>mới</ins>.
   const ctx = e.context || "", norm = (x) => x.replace(/\s+/g, " ").trim(), old = norm(e.old), i = ctx.indexOf(old);
@@ -627,48 +670,135 @@ function markEdit(e) {
   const cut = (s, end) => s.length > 260 ? (end ? s.slice(0, 260) + "…" : "…" + s.slice(-260)) : s;
   return esc(cut(before, false)) + mark + esc(cut(after, true));
 }
-function renderReview() {
-  const edits = review.data.edits, f = $("peFilter").value;
-  const on = edits.filter((e) => e.accepted).length, failed = edits.filter((e) => e.accepted && e.status === "failed").length;
-  $("peSummary").textContent = `${edits.length} chỗ sửa · nhận ${on} · bỏ ${edits.length - on}` + (failed ? ` · ${failed} chỗ không áp được (câu cũ không khớp)` : "") +
-    ` · mức ${review.data.level || ""} · ${review.data.created || ""}` + (review.dirty ? " · CHƯA LƯU" : "");
-  const show = edits.filter((e) => f === "all" || (f === "on" && e.accepted) || (f === "off" && !e.accepted) || (f === "failed" && e.status === "failed"));
-  $("editList").innerHTML = show.length ? show.map((e) => `<div class="edit ${e.accepted ? "" : "off"}" data-id="${e.id}">
-    <input type="checkbox" data-eid="${e.id}" ${e.accepted ? "checked" : ""} title="Nhận chỗ sửa này">
-    <div><div class="meta">#${e.id} · ${esc(e.title || e.section)} · <b>${esc(e.why || "")}</b>${e.status === "failed" ? ' · <span class="badge no">không áp được</span>' : ""}</div>
-    <div class="para">${markEdit(e)}</div>
-    ${e.source ? `<details><summary>bản gốc</summary>${esc(e.source)}</details>` : ""}</div></div>`).join("") : '<p class="hint">Không có chỗ sửa nào.</p>';
-}
-async function openReview(rel) {
-  if (!rel) return toast("Chưa có file chỗ sửa — chạy hiệu đính trước.");
+async function loadChapters(selectId) {
+  const book = $("peTranslated").value;
+  if (!book) { $("peChapterList").innerHTML = '<tr><td colspan="5" class="hint">Chọn bản dịch ở mục 1.</td></tr>'; $("peReview").style.display = "none"; return; }
   try {
-    const r = await api("/api/file?path=" + encodeURIComponent(rel));
-    if (!r.exists) return toast("Không tìm thấy " + rel);
-    review = { path: rel, data: JSON.parse(r.content), dirty: false };
-    $("peReview").style.display = ""; $("peResult").innerHTML = ""; renderReview();
+    const r = await api("/api/postedit/chapters?book=" + enc(book));
+    if (book !== pe.book) { pe.skipped = new Set(); pe.sel = null; }
+    Object.assign(pe, { book, chapters: r.chapters, editsPath: r.edits_path, output: r.output, data: null, dirty: false });
+    if (r.edits_path) pe.data = JSON.parse((await api("/api/file?path=" + enc(r.edits_path))).content);
+    const pick = selectId || pe.sel;
+    pe.sel = pe.chapters.some((c) => c.id === pick) ? pick
+      : (pe.chapters.find((c) => c.status === "review") || nextTodo(null) || pe.chapters[0] || {}).id;
+    renderChapters(); renderReview();
   } catch (e) { toast(e.message); }
 }
-$("peOpen").onclick = () => openReview($("peEdits").value);
-$("peFilter").onchange = () => review && renderReview();
-$("editList").addEventListener("change", (e) => {
-  const id = e.target.dataset.eid; if (!id || !review) return;
-  const ed = review.data.edits.find((x) => String(x.id) === id); ed.accepted = e.target.checked; review.dirty = true;
-  e.target.closest(".edit").classList.toggle("off", !ed.accepted); renderReview();
+function nextTodo(after) {
+  const min = $("peSkipShort").checked ? 3 : 1, idx = pe.chapters.findIndex((c) => c.id === after);
+  const ok = (c) => !chStatus(c) && c.paragraphs >= min;
+  return pe.chapters.slice(idx + 1).find(ok) || pe.chapters.slice(0, Math.max(idx, 0)).find(ok) || null;
+}
+function chapterEdits(id) { return pe.data ? pe.data.edits.filter((e) => e.section === id) : []; }
+function renderChapters() {
+  const min = $("peSkipShort").checked ? 3 : 1, real = pe.chapters.filter((c) => c.paragraphs >= min);
+  const doneN = real.filter((c) => ["approved", "skipped"].includes(chStatus(c))).length;
+  const waiting = real.filter((c) => chStatus(c) === "review").length;
+  const on = pe.data ? pe.data.edits.filter((e) => e.accepted).length : 0;
+  $("peProgress").textContent = `Đã duyệt ${doneN}/${real.length} chương` + (waiting ? ` · ${waiting} chương chờ duyệt` : "") +
+    ` · ${on} chỗ sửa đang nhận trong cả cuốn` + (pe.dirty ? " · CÓ THAY ĐỔI CHƯA LƯU" : "");
+  $("peChapterList").innerHTML = pe.chapters.map((c) => {
+    const st = chStatus(c), [label, cls] = chRunning(c) ? ["⏳ đang hiệu đính", ""] : CH_STATUS[st] || [st, ""], mine = chapterEdits(c.id);
+    const edits = st && st !== "skipped" ? `${mine.filter((e) => e.accepted).length}/${mine.length}` : "";
+    return `<tr data-sid="${esc(c.id)}" class="${c.id === pe.sel ? "sel" : ""} ${c.paragraphs < min ? "dim" : ""}"><td>${c.number}</td><td>${esc(c.title)}</td>
+      <td>${c.paragraphs}</td><td>${edits}</td><td><span class="badge ${cls}">${label}</span></td></tr>`;
+  }).join("") || '<tr><td colspan="5" class="hint">Không có chương nào.</td></tr>';
+}
+function renderReview() {
+  const c = pe.chapters.find((x) => x.id === pe.sel);
+  $("peReview").style.display = c ? "" : "none";
+  if (!c) return;
+  const st = chStatus(c), done = !!st && st !== "skipped", running = currentJob && currentJob.status === "running";
+  $("peChapterTitle").textContent = `Chương ${c.number}: ${c.title} — ${chRunning(c) ? "⏳ đang hiệu đính…" : (CH_STATUS[st] || [st])[0]}`;
+  const edits = chapterEdits(c.id), f = $("peFilter").value;
+  const on = edits.filter((e) => e.accepted).length, failed = edits.filter((e) => e.accepted && e.status === "failed").length;
+  $("peSummary").textContent = !done ? "Chương này chưa được hiệu đính." :
+    `${edits.length} chỗ sửa · nhận ${on} · bỏ ${edits.length - on}` + (failed ? ` · ${failed} chỗ không áp được (câu cũ không khớp)` : "");
+  const show = edits.filter((e) => f === "all" || (f === "on" && e.accepted) || (f === "off" && !e.accepted) || (f === "failed" && e.status === "failed"));
+  $("editList").innerHTML = !done ? "" : show.length ? show.map((e) => `<div class="edit ${e.accepted ? "" : "off"}" data-id="${e.id}">
+    <input type="checkbox" data-eid="${e.id}" ${e.accepted ? "checked" : ""} title="Nhận chỗ sửa này">
+    <div><div class="meta">#${e.id} · <b>${esc(e.why || "")}</b>${e.status === "failed" ? ' · <span class="badge no">không áp được</span>' : ""}</div>
+    <div class="para">${markEdit(e)}</div>
+    ${e.source ? `<details><summary>bản gốc</summary>${esc(e.source)}</details>` : ""}</div></div>`).join("")
+    : `<p class="hint">${edits.length ? "Không có chỗ sửa nào khớp bộ lọc." : "AI thấy chương này đã ổn, không có gì cần sửa."}</p>`;
+  const next = nextTodo(c.id);
+  $("peRunThis").style.display = done ? "none" : "";
+  $("peRunThis").textContent = st === "skipped" ? "✎ Vẫn hiệu đính chương này" : "✎ Hiệu đính chương này";
+  $("peApprove").style.display = done && st !== "approved" ? "" : "none";
+  $("peSkip").style.display = st ? "none" : "";
+  $("peNext").style.display = next ? "" : "none";
+  $("peNext").textContent = next ? (done && st !== "approved" ? "✓ Duyệt & hiệu đính chương tiếp: " : "✎ Hiệu đính chương tiếp: ") + `${next.number}. ${next.title}` : "";
+  for (const id of ["peRunThis", "peApprove", "peNext", "peSkip"]) $(id).disabled = !!running;
+}
+$("peChapterList").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-sid]"); if (!tr) return;
+  pe.sel = tr.dataset.sid; renderChapters(); renderReview();
 });
-const setAll = (v) => { if (!review) return; review.data.edits.forEach((e) => e.accepted = v); review.dirty = true; renderReview(); };
+$("peTranslated").addEventListener("change", () => loadChapters());
+$("peSkipShort").addEventListener("change", () => { renderChapters(); renderReview(); });
+$("peFilter").onchange = renderReview;
+$("editList").addEventListener("change", (e) => {
+  const id = e.target.dataset.eid; if (!id || !pe.data) return;
+  pe.data.edits.find((x) => String(x.id) === id).accepted = e.target.checked; pe.dirty = true;
+  renderChapters(); renderReview();
+});
+const setAll = (v) => { chapterEdits(pe.sel).forEach((e) => e.accepted = v); pe.dirty = true; renderChapters(); renderReview(); };
 $("peAll").onclick = () => setAll(true);
 $("peNone").onclick = () => setAll(false);
-$("peApply").onclick = async () => {
-  if (!review) return;
+async function peSave(chapters = {}) {
+  // Ghi lựa chọn nhận/bỏ + trạng thái chương, đồng thời xuất lại CẢ CUỐN.
+  if (!pe.editsPath) return null;
+  const decisions = Object.fromEntries(pe.data.edits.map((e) => [e.id, !!e.accepted]));
+  const r = await api("/api/postedit/apply", { method: "POST", body: JSON.stringify({ path: pe.editsPath, decisions, chapters }) });
+  pe.dirty = false;
+  return r;
+}
+async function runChapter(c) {
   try {
-    const decisions = Object.fromEntries(review.data.edits.map((e) => [e.id, !!e.accepted]));
-    const r = await api("/api/postedit/apply", { method: "POST", body: JSON.stringify({ path: review.path, decisions }) });
-    await openReview(review.path);
-    $("peResult").innerHTML = `<p>Đã xuất <b>${r.applied}</b> chỗ sửa${r.failed ? `, ${r.failed} chỗ không áp được` : ""} → ${fileLink(r.output).replace(/^<li>|<\/li>$/g, "")}</p>`;
-    toast("Đã lưu & xuất bản hiệu đính");
-    refresh();
+    pe.sel = c.id;
+    await startJob({ ...collect("postedit"), pe_chapters: String(c.number) }, false);
+    $("peResult").innerHTML = ""; renderChapters(); renderReview();
+  } catch (e) { toast(e.message); }
+}
+const current = () => pe.chapters.find((x) => x.id === pe.sel);
+$("peRunThis").onclick = async () => { await peSave(); runChapter(current()); };
+$("peApprove").onclick = async () => {
+  try { await peSave({ [pe.sel]: "approved" }); toast("Đã duyệt chương " + current().number); await loadChapters(pe.sel); } catch (e) { toast(e.message); }
+};
+$("peNext").onclick = async () => {
+  const c = current(), next = nextTodo(c.id); if (!next) return;
+  try {
+    if (["review"].includes(chStatus(c))) await peSave({ [c.id]: "approved" }); else await peSave();
+    await loadChapters(c.id); runChapter(next);
   } catch (e) { toast(e.message); }
 };
+$("peSkip").onclick = async () => {
+  const c = current();
+  try {
+    if (pe.editsPath) await peSave({ [c.id]: "skipped" }); else pe.skipped.add(c.id);
+    const next = nextTodo(c.id);
+    await loadChapters(next ? next.id : c.id);
+  } catch (e) { toast(e.message); }
+};
+$("peExport").onclick = async () => {
+  if (!pe.editsPath) return toast("Chưa hiệu đính chương nào.");
+  try {
+    const r = await peSave();
+    await loadChapters(pe.sel);
+    const waiting = pe.chapters.filter((c) => c.status === "review").length;
+    $("peResult").innerHTML = `<p>Đã xuất cả cuốn với <b>${r.applied}</b> chỗ sửa${r.failed ? `, ${r.failed} chỗ không áp được` : ""} → ${fileLink(r.output).replace(/^<li>|<\/li>$/g, "")}` +
+      (waiting ? `<br><span class="hint">${waiting} chương chưa duyệt: các chỗ sửa ở đó đang được nhận theo mặc định.</span>` : "") + "</p>";
+    toast("Đã xuất cả cuốn"); refresh();
+  } catch (e) { toast(e.message); }
+};
+async function openReview(rel) {
+  // Mở từ link "duyệt chỗ sửa": chọn đúng bản dịch của file chỗ sửa đó.
+  try {
+    const data = JSON.parse((await api("/api/file?path=" + enc(rel))).content);
+    const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/") + 1) : "";
+    $("peTranslated").value = dir + data.translated; saveForm(); loadChapters();
+  } catch (e) { toast(e.message); }
+}
 $("peGuideNew").onclick = async () => {
   try { const r = await api("/api/postedit/guide", { method: "POST" }); await refresh(); $("peGuide").value = r.path; saveForm(); toast("Đã tạo " + r.path + " — bấm Sửa để thêm yêu cầu của bạn."); }
   catch (e) { toast(e.message); }

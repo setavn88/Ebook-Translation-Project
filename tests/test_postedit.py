@@ -145,3 +145,38 @@ def test_cli_postedit_and_apply(tmp_path, monkeypatch, capsys):
     assert cli.main(["ap-hieu-dinh", str(log), "--bo", "1"]) == 0
     assert out.read_text(encoding="utf-8") == "Câu thô một.\n\nCâu hay.\n\nCâu mượt hai.\n"
     assert cli.main(["hieu-dinh", str(vi), "-o", str(vi)]) == 2
+
+
+def test_chapter_by_chapter_keeps_earlier_edits_and_writes_full_book(tmp_path, monkeypatch, capsys):
+    provider = EditProvider([("thô", "mượt")])
+    monkeypatch.setattr(cli, "build_chain", lambda *a, **kw: ProviderChain([provider]))
+    vi = tmp_path / "s.vi.md"
+    vi.write_text("# Một\n\nCâu thô một.\n\n# Hai\n\nCâu thô hai.\n\n# Ba\n\nCâu thô ba.", encoding="utf-8")
+    out, log = tmp_path / "s.vi.hieu-dinh.md", tmp_path / "s.vi.hieu-dinh.md.edits.json"
+
+    assert cli.main(["hieu-dinh", str(vi), "--chuong", "1"]) == 0
+    data = json.loads(log.read_text(encoding="utf-8"))
+    assert [c["status"] for c in data["chapters"].values()] == ["review"]
+    # Người dùng bỏ chỗ sửa chương 1 rồi duyệt chương 1.
+    assert cli.main(["ap-hieu-dinh", str(log), "--bo", "1", "--duyet-chuong", "1"]) == 0
+
+    assert cli.main(["hieu-dinh", str(vi), "--chuong", "2"]) == 0
+    data, edits = load_edits(log)
+    assert [(e.id, e.accepted) for e in edits] == [(1, False), (2, True)]  # chương 1 giữ nguyên lựa chọn
+    statuses = {c["title"]: c["status"] for c in data["chapters"].values()}
+    assert statuses == {"Một": "approved", "Hai": "review"}
+    # File kết quả luôn là cả cuốn: chương 1 không sửa (đã bỏ), chương 2 đã sửa, chương 3 chưa hiệu đính.
+    assert out.read_text(encoding="utf-8") == "# Một\n\nCâu thô một.\n\n# Hai\n\nCâu mượt hai.\n\n# Ba\n\nCâu thô ba.\n"
+
+    # Chạy lại chương 2: chỗ sửa trùng giữ số thứ tự, không nhân đôi.
+    assert cli.main(["hieu-dinh", str(vi), "--chuong", "2"]) == 0
+    assert [e.id for e in load_edits(log)[1]] == [1, 2]
+
+    from booktranslator.postedit import chapter_overview, existing_edits
+
+    edits, chapters = existing_edits(log, vi)
+    overview = chapter_overview(load_document(vi), chapters, edits)
+    assert [(c["number"], c["status"], c["edits"]) for c in overview] == [(1, "approved", 1), (2, "review", 1), (3, "", 0)]
+
+    assert cli.main(["hieu-dinh", str(vi), "--chuong", "3", "--lam-moi"]) == 0
+    assert [e.section for e in load_edits(log)[1]] == ["sec-0003"]

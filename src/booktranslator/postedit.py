@@ -306,8 +306,9 @@ def make_units(paras: list[Paragraph], selected: set[str] | None, chars: int = U
 
 @dataclass
 class PostEditResult:
-    edits: list[Edit] = field(default_factory=list)
+    edits: list[Edit] = field(default_factory=list)  # mọi chỗ sửa của cả cuốn (kể cả các chương làm trước)
     units: int = 0
+    new: int = 0  # số chỗ sửa vừa tìm được ở lần chạy này
 
     @property
     def applied(self) -> int:
@@ -412,7 +413,10 @@ def postedit_document(
     sections: set[str] | None = None,
     workers: int = 4,
     progress: Progress | None = None,
+    existing: list[Edit] | None = None,
 ) -> PostEditResult:
+    """Hiệu đính các chương `sections` (None = cả cuốn), gộp với chỗ sửa sẵn có của các chương khác,
+    rồi ghi lại TOÀN BỘ cuốn sách với mọi chỗ sửa đang được nhận."""
     paras = paragraphs_of(translated)
     sources = align_sources(paras, paragraphs_of(source) if source else None)
     units = make_units(paras, sections)
@@ -428,14 +432,30 @@ def postedit_document(
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         results = list(pool.map(work, units))
 
-    edits = []
+    fresh = []
     for found in results:
         for gi, e in found:
             p = paras[gi]
-            edits.append(Edit(len(edits) + 1, p.section_id, p.title, gi, e["old"], e["new"], e["why"],
-                              context=p.text, source=sources[gi]))
+            fresh.append(Edit(0, p.section_id, p.title, gi, e["old"], e["new"], e["why"], context=p.text, source=sources[gi]))
+    processed = sections if sections is not None else {p.section_id for p in paras}
+    edits = merge_edits(existing or [], fresh, processed)
     _apply_and_write(translated, paras, edits, output)
-    return PostEditResult(edits, len(units))
+    return PostEditResult(edits, len(units), len(fresh))
+
+
+def merge_edits(existing: list[Edit], fresh: list[Edit], processed: set[str]) -> list[Edit]:
+    """Chỗ sửa của chương vừa hiệu đính thay cho chỗ sửa cũ của chương đó; chương khác giữ nguyên.
+    Chỗ sửa trùng hệt lần trước giữ số thứ tự và lựa chọn nhận/bỏ của người dùng."""
+    old_by_key = {(e.p, e.old, e.new): e for e in existing if e.section in processed}
+    kept = [e for e in existing if e.section not in processed]
+    next_id = max((e.id for e in existing), default=0) + 1
+    for e in fresh:
+        prev = old_by_key.get((e.p, e.old, e.new))
+        if prev:
+            e.id, e.accepted = prev.id, prev.accepted
+        else:
+            e.id, next_id = next_id, next_id + 1
+    return sorted(kept + fresh, key=lambda e: (e.p, e.id))
 
 
 def _apply_and_write(doc: Document, paras: list[Paragraph], edits: list[Edit], output: Path) -> None:
@@ -462,6 +482,10 @@ def _apply_and_write(doc: Document, paras: list[Paragraph], edits: list[Edit], o
 # ---- file duyệt .edits.json --------------------------------------------
 
 
+def default_output(translated: Path) -> Path:
+    return translated.with_name(f"{translated.stem}.hieu-dinh{translated.suffix}")
+
+
 def edits_path(output: Path) -> Path:
     return output.with_name(f"{output.name}.edits.json")
 
@@ -474,7 +498,14 @@ def _rel(base: Path, target: Path) -> str:
         return str(target.resolve())
 
 
-def save_edits(path: Path, translated: Path, source: Path | None, output: Path, level: str, edits: list[Edit]) -> None:
+CHAPTER_REVIEW, CHAPTER_APPROVED, CHAPTER_SKIPPED = "review", "approved", "skipped"
+
+
+def save_edits(
+    path: Path, translated: Path, source: Path | None, output: Path, level: str, edits: list[Edit],
+    chapters: dict | None = None,
+) -> None:
+    """`chapters`: id chương → {"title", "status": review | approved | skipped, "at"} — tiến độ duyệt từng chương."""
     base = path.parent
     data = {
         "version": 1,
@@ -483,6 +514,7 @@ def save_edits(path: Path, translated: Path, source: Path | None, output: Path, 
         "output": _rel(base, output),
         "level": level,
         "created": time.strftime("%Y-%m-%d %H:%M"),
+        "chapters": chapters or {},
         "edits": [e.to_dict() for e in edits],
     }
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -499,9 +531,54 @@ def _resolve(base: Path, value: str) -> Path:
     return p if p.is_absolute() else base / p
 
 
-def apply_edits_file(path: Path, decisions: dict[int, bool] | None = None, output: Path | None = None) -> tuple[int, int]:
-    """Xuất lại bản hiệu đính theo lựa chọn nhận/bỏ từng chỗ sửa. Trả về (số chỗ đã áp, số chỗ không áp được)."""
+def existing_edits(path: Path, translated: Path) -> tuple[list[Edit], dict]:
+    """Chỗ sửa và tiến độ duyệt từng chương đã có của cùng bản dịch (để hiệu đính tiếp từng chương)."""
+    if not path.exists():
+        return [], {}
     data, edits = load_edits(path)
+    if _resolve(path.parent, data.get("translated", "")).resolve() != translated.resolve():
+        return [], {}
+    return edits, data.get("chapters") or {}
+
+
+def mark_chapters(chapters: dict, ids, status: str, titles: dict[str, str] | None = None) -> dict:
+    for sid in ids:
+        entry = chapters.setdefault(sid, {})
+        entry.update(status=status, at=time.strftime("%Y-%m-%d %H:%M"))
+        if titles and sid in titles:
+            entry["title"] = titles[sid]
+    return chapters
+
+
+def chapter_overview(doc: Document, chapters: dict, edits: list[Edit]) -> list[dict]:
+    """Danh sách chương (đánh số như --chuong) kèm số đoạn, số chỗ sửa và trạng thái duyệt."""
+    paras = paragraphs_of(doc)
+    count = {}
+    for p in paras:
+        count[p.section_id] = count.get(p.section_id, 0) + 1
+    out = []
+    for n, s in enumerate(doc.sections, start=1):
+        mine = [e for e in edits if e.section == s.id]
+        out.append({
+            "number": n, "id": s.id, "title": s.title, "paragraphs": count.get(s.id, 0),
+            "edits": len(mine), "accepted": sum(1 for e in mine if e.accepted),
+            "status": (chapters.get(s.id) or {}).get("status", ""),
+        })
+    return out
+
+
+def apply_edits_file(
+    path: Path, decisions: dict[int, bool] | None = None, output: Path | None = None,
+    chapter_status: dict[str, str] | None = None,
+) -> tuple[int, int]:
+    """Xuất lại CẢ CUỐN theo lựa chọn nhận/bỏ từng chỗ sửa (và ghi trạng thái duyệt chương nếu có).
+    Trả về (số chỗ đã áp, số chỗ không áp được)."""
+    data, edits = load_edits(path)
+    chapters = data.get("chapters") or {}
+    for sid, status in (chapter_status or {}).items():
+        if status in (CHAPTER_REVIEW, CHAPTER_APPROVED, CHAPTER_SKIPPED):
+            mark_chapters(chapters, [sid], status)
+    data["chapters"] = chapters
     for e in edits:
         if decisions and e.id in decisions:
             e.accepted = bool(decisions[e.id])

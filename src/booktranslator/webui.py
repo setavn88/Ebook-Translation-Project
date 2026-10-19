@@ -24,9 +24,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from .cli import PRESETS
-from .document import SUPPORTED, default_output_path
+from .document import SUPPORTED, default_output_path, load_document
 from .genres import BUILTIN as GENRES
-from .postedit import LEVELS, apply_edits_file, edits_path
+from .postedit import LEVELS, apply_edits_file, chapter_overview, default_output, edits_path, existing_edits
 from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, CODEX_PATH_ENV, check_claude_code, check_codex, find_claude, find_codex
 from .styles import BUILTIN as STYLES
 
@@ -221,7 +221,19 @@ class App:
                 target.write_text("# Hướng dẫn hiệu đính\n\n## Ghi chú của tôi\n- \n", encoding="utf-8")
         return self.rel(target)
 
-    def apply_edits(self, rel: str, decisions: dict) -> dict:
+    def postedit_chapters(self, book_rel: str) -> dict:
+        """Các chương của bản dịch + trạng thái hiệu đính/duyệt từng chương (để làm lần lượt từng chương)."""
+        book = Path(self.existing(book_rel))
+        output = default_output(book)
+        log = edits_path(output)
+        edits, chapters = existing_edits(log, book)
+        return {
+            "chapters": chapter_overview(load_document(book), chapters, edits),
+            "edits_path": self.rel(log) if log.exists() and (edits or chapters) else "",
+            "output": self.rel(output),
+        }
+
+    def apply_edits(self, rel: str, decisions: dict, chapters: dict | None = None) -> dict:
         """Xuất lại bản hiệu đính theo các chỗ sửa người dùng đã nhận/bỏ trên giao diện."""
         path = self.resolve(rel)
         if not path.name.endswith(".edits.json") or not path.is_file():
@@ -232,7 +244,8 @@ class App:
             target = target if target.is_absolute() else path.parent / target
             if not target.resolve().is_relative_to(self.workspace):
                 raise PermissionError("File chỗ sửa trỏ ra ngoài thư mục làm việc")
-        applied, failed = apply_edits_file(path, {int(k): bool(v) for k, v in (decisions or {}).items()})
+        status = {str(k): str(v) for k, v in (chapters or {}).items()}
+        applied, failed = apply_edits_file(path, {int(k): bool(v) for k, v in (decisions or {}).items()}, None, status)
         out = Path(data["output"])
         out = out if out.is_absolute() else path.parent / out
         return {"applied": applied, "failed": failed, "output": self.rel(out)}
@@ -388,8 +401,7 @@ class App:
                 argv.append(f"--chuong={chapters}")
             if note := (opts.get("pe_note") or "").strip():
                 argv.append(f"--yeu-cau={note}")
-            src = Path(book)
-            out = src.with_name(f"{src.stem}.hieu-dinh{src.suffix}")
+            out = default_output(Path(book))
             return action, argv, [self.rel(out), self.rel(edits_path(out))]
 
         argv += self._api_args(opts)
@@ -570,7 +582,9 @@ def make_handler(app: App):
                 return self._json({"path": app.install_edit_guide()})
             if method == "POST" and path == "/api/postedit/apply":
                 data = json.loads(self._body() or b"{}")
-                return self._json(app.apply_edits(str(data.get("path", "")), data.get("decisions") or {}))
+                return self._json(app.apply_edits(str(data.get("path", "")), data.get("decisions") or {}, data.get("chapters")))
+            if method == "GET" and path == "/api/postedit/chapters":
+                return self._json(app.postedit_chapters(q("book")))
             if method == "POST" and path == "/api/starter":
                 return self._json({"files": app.install_starter()})
             if method == "POST" and path == "/api/upload":

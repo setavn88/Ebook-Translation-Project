@@ -242,20 +242,24 @@ Tự viết hồ sơ phong cách cũng được: xem [`examples/phong-cach-mau.j
 
 Bản dịch thô thường còn câu cứng, nghĩa đen. Bước **hiệu đính** cho AI đọc lại bản dịch đã có và **chỉ trả về những câu cần sửa** (cũ → mới, kèm lý do), không viết lại cả cuốn, nên tốn ít token. Thử thật trên phần mở đầu "The Color of Magic" (15 đoạn): 9 chỗ sửa, khoảng 14 nghìn token.
 
-Trên giao diện, dùng tab **✎ Hiệu đính**:
+Trên giao diện, dùng tab **✎ Hiệu đính**. Sách dài thì làm **lần lượt từng chương**:
 
-1. **Chạy hiệu đính.** Chọn bản dịch, bản gốc (khuyên dùng), mức sửa và hướng dẫn hiệu đính.
+1. **Cài đặt.** Chọn bản dịch, bản gốc (khuyên dùng), mức sửa và hướng dẫn hiệu đính.
    - Mức **Nhẹ** chỉ sửa lỗi rõ.
    - Mức **Vừa** sửa thêm câu "văn dịch".
    - Mức **Sâu** viết lại mạnh tay.
    - Hướng dẫn hiệu đính là prompt riêng của bạn. Bấm "Tạo hướng dẫn mẫu" rồi sửa.
-   - Nên thử 1 chương trước.
-2. **Duyệt từng chỗ sửa.** Chữ cũ hiện gạch đỏ, chữ mới tô xanh. Bỏ tick những chỗ không ưng, rồi bấm **Lưu & xuất bản hiệu đính**. Bản dịch gốc luôn được giữ nguyên, nên duyệt lại bao nhiêu lần cũng được.
+2. **Hiệu đính & duyệt từng chương.** Bảng chương cho biết chương nào chưa làm, đang chờ duyệt, đã duyệt.
+   - Chọn một chương rồi bấm **Hiệu đính chương này**. AI chạy ngay trong tab, có thanh tiến độ.
+   - Duyệt từng chỗ sửa: chữ cũ gạch đỏ, chữ mới tô xanh. Bỏ tick những chỗ không ưng.
+   - Bấm **✓ Duyệt & hiệu đính chương tiếp** để chốt chương này và cho AI làm luôn chương kế. Chương rất ngắn (bìa, bản quyền…) được tự bỏ qua.
+   - Tắt phần mềm giữa chừng cũng không sao: mở lại vẫn thấy chương nào đã duyệt.
+   - Bấm **💾 Xuất cả cuốn** bất cứ lúc nào. File luôn là **cả cuốn sách**: chương đã hiệu đính mang các chỗ sửa bạn nhận, chương chưa làm giữ nguyên bản dịch. Bản dịch gốc không bị đụng tới.
 3. **Học từ bản sửa.** AI so bản trước và sau khi sửa:
    - Tên được thống nhất lại (vd. "quỷ lùn" → "Quỷ Đá") được ghi thẳng vào sổ tay.
    - Bài học về câu chữ và vài ví dụ được nối vào cuối hướng dẫn hiệu đính.
    - Nguồn học là các chỗ sửa bạn đã duyệt (chỗ bị bỏ thành bài học "tránh"), hoặc hai bản: bản thô và bản bạn/AI khác đã sửa tay.
-   - Lần dịch hoặc hiệu đính sau sẽ tự làm theo.
+   - Nên học sau vài chương đầu, để các chương sau AI sửa đúng ý hơn.
 
 Dòng lệnh tương ứng:
 
@@ -265,7 +269,8 @@ booktranslator hieu-dinh "The Colour of Magic.vi.epub" --ban-goc "The Colour of 
   --huong-dan-hieu-dinh huong-dan-hieu-dinh.md --muc-hieu-dinh vua --chuong 9
 # → The Colour of Magic.vi.hieu-dinh.epub + ….edits.json (danh sách chỗ sửa)
 
-booktranslator ap-hieu-dinh "The Colour of Magic.vi.hieu-dinh.epub.edits.json" --bo 3,7-9   # bỏ vài chỗ rồi xuất lại
+booktranslator hieu-dinh "The Colour of Magic.vi.epub" … --chuong 10   # chương tiếp: chỗ sửa chương 9 được giữ
+booktranslator ap-hieu-dinh "The Colour of Magic.vi.hieu-dinh.epub.edits.json" --bo 3,7-9 --duyet-chuong 9   # bỏ vài chỗ, duyệt chương 9, xuất lại cả cuốn
 
 booktranslator hoc-tu-ban-sua --ban-tho raw.epub --ban-sua codex.epub \
   --so-tay discworld.bible.json --huong-dan-hieu-dinh huong-dan-hieu-dinh.md
