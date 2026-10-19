@@ -66,6 +66,16 @@ td input { padding: 5px 7px; }
 .toast.show { opacity: .95; }
 ul.files { margin: 6px 0 0; padding-left: 18px; } ul.files li { margin: 3px 0; }
 a { color: var(--accent); }
+.edit { border-top: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+.edit:first-child { border-top: 0; }
+.edit .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 3px; }
+.edit .para { line-height: 1.6; }
+.edit del { background: #f9d7d3; color: #8c1d14; text-decoration: line-through; padding: 0 2px; border-radius: 3px; }
+.edit ins { background: #d5efdc; color: #1d5c34; text-decoration: none; padding: 0 2px; border-radius: 3px; }
+@media (prefers-color-scheme: dark) { .edit del { background: #4a2420; color: #f5b5ad; } .edit ins { background: #1f3d2a; color: #a6e3bb; } }
+.edit.off .para { opacity: .55; } .edit.off ins { display: none; } .edit.off del { text-decoration: none; background: none; color: inherit; }
+.edit details { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+#editList { max-height: 70vh; overflow: auto; }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   nav button { white-space: nowrap; width: auto; } main { padding: 16px; } }
 </style>
@@ -82,6 +92,7 @@ a { color: var(--accent); }
   <button data-tab="brief"><span class="step">3</span>Hướng dẫn dịch</button>
   <button data-tab="bible"><span class="step">4</span>Sổ tay tên riêng</button>
   <button data-tab="run"><span class="step">5</span>Dịch &amp; kết quả</button>
+  <button data-tab="postedit"><span class="step">✎</span>Hiệu đính</button>
   <button data-tab="learn"><span class="step">★</span>Học phong cách</button>
   <button data-tab="keys"><span class="step">⚙</span>Kết nối AI</button>
 </nav>
@@ -209,6 +220,52 @@ a { color: var(--accent); }
   <div class="card"><h3>Tất cả file kết quả</h3><ul class="files" id="results"></ul></div>
 </section>
 
+<!-- ✎ Hiệu đính -->
+<section id="tab-postedit">
+  <h2>Hiệu đính bản dịch</h2>
+  <p class="lead">AI đọc lại bản dịch đã có và <b>chỉ trả về những câu cần sửa</b> (cũ → mới) nên tốn ít token. Bạn duyệt từng chỗ, nhận hay bỏ, rồi xuất bản cuối. Thể loại, phong cách, hướng dẫn dịch, sổ tay lấy theo bước 2; AI hiệu đính là các AI ở ô "Người biên tập".</p>
+  <div class="card">
+    <h3>1. Chạy hiệu đính</h3>
+    <div class="grid">
+      <div><label for="peTranslated">Bản dịch cần hiệu đính</label><select id="peTranslated"></select></div>
+      <div><label for="peSource">Bản gốc tiếng Anh (khuyên dùng)</label><select id="peSource"></select>
+        <p class="hint">Có bản gốc thì AI sửa được cả chỗ hiểu sai nghĩa, không chỉ câu chữ.</p></div>
+      <div><label for="peGuide">Hướng dẫn hiệu đính (prompt riêng của bạn)</label><select id="peGuide"></select>
+        <div class="row" style="margin-top:6px"><button class="btn" id="peGuideNew">＋ Tạo hướng dẫn mẫu</button><button class="btn" id="peGuideEdit">✎ Sửa</button></div></div>
+      <div><label for="peLevel">Mức hiệu đính</label><select id="peLevel"></select><p class="hint" id="peLevelHint"></p></div>
+      <div><label for="peChapters">Chỉ các chương (để trống = cả cuốn)</label><input type="text" id="peChapters" placeholder="vd. 9 hoặc 1,3-5">
+        <p class="hint">Nên thử 1 chương trước để xem AI sửa có hợp ý không.</p></div>
+      <div><label for="peNote">Yêu cầu thêm cho lần này</label><input type="text" id="peNote" placeholder="vd. đặc biệt chú ý lời thoại"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-action="postedit">✎ Hiệu đính</button>
+      <span class="hint">Tiến độ hiện ở bước 5. Xong sẽ có file <code>…hieu-dinh…</code> và file chỗ sửa <code>….edits.json</code> để duyệt bên dưới.</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><h3 style="margin:0">2. Duyệt từng chỗ sửa</h3><select id="peEdits" style="width:auto;flex:1;min-width:220px"></select><button class="btn" id="peOpen">Mở</button></div>
+    <div id="peReview" style="display:none;margin-top:12px">
+      <div class="row"><span id="peSummary" class="hint" style="flex:1"></span>
+        <select id="peFilter" style="width:auto"><option value="all">tất cả</option><option value="on">đang nhận</option><option value="off">đang bỏ</option><option value="failed">không áp được</option></select>
+        <button class="btn" id="peAll">Nhận tất cả</button><button class="btn" id="peNone">Bỏ tất cả</button>
+        <button class="btn primary" id="peApply">💾 Lưu &amp; xuất bản hiệu đính</button></div>
+      <div id="editList" style="margin-top:8px"></div>
+      <div id="peResult" style="margin-top:8px"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>3. Học từ bản sửa</h3>
+    <p class="hint" style="margin-top:0">AI so bản trước/sau khi sửa: tên được thống nhất lại → ghi thẳng vào sổ tay (bước 4); bài học về câu chữ + ví dụ → nối vào cuối hướng dẫn hiệu đính ở trên. Lần dịch/hiệu đính sau sẽ tự làm theo.</p>
+    <div class="chips"><label><input type="radio" name="leMode" value="edits" checked> từ các chỗ sửa đã duyệt (file đang mở ở mục 2: nhận = học theo, bỏ = học tránh)</label>
+      <label><input type="radio" name="leMode" value="docs"> từ hai bản: bản thô và bản bạn/AI khác đã sửa</label></div>
+    <div class="grid" id="leDocs" style="display:none;margin-top:8px">
+      <div><label for="leTho">Bản trước khi sửa</label><select id="leTho"></select></div>
+      <div><label for="leSua">Bản đã sửa</label><select id="leSua"></select></div>
+      <div><label for="leGoc">Bản gốc tiếng Anh (tùy chọn)</label><select id="leGoc"></select></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-action="learn_edits">🎓 Học từ bản sửa</button>
+      <span class="hint">Sổ tay cập nhật: <code id="leBible"></code></span></div>
+  </div>
+</section>
+
 <!-- ★ Học phong cách -->
 <section id="tab-learn">
   <h2>Học phong cách từ sách tham chiếu</h2>
@@ -287,7 +344,8 @@ async function api(path, opts = {}) {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---- ghi nhớ lựa chọn --------------------------------------------------
-const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut"];
+const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut",
+  "peTranslated", "peSource", "peGuide", "peLevel", "peChapters", "peNote", "leTho", "leSua", "leGoc"];
 let formReady = false, saveTimer = null;
 function saveForm() {
   if (!formReady) return;  // chưa nạp xong cài đặt cũ thì không ghi đè
@@ -314,6 +372,7 @@ $("nav").addEventListener("click", (e) => {
   if (b.dataset.tab === "brief") loadBrief();
   if (b.dataset.tab === "bible") loadBible();
   if (b.dataset.tab === "run") loadPreview();
+  if (b.dataset.tab === "postedit") $("leBible").textContent = bibleRel();
 });
 
 function fillSelect(sel, items, value, empty) {
@@ -335,8 +394,20 @@ async function refresh(first = false) {
   fillSelect("glossary", f.jsons.map((j) => [j, j]), saved.glossary, "— không dùng —");
   fillSelect("banDich", f.books.map((b) => [b, b]), saved.banDich, "— chọn —");
   fillSelect("banGoc", f.books.map((b) => [b, b]), saved.banGoc, "— không có —");
+  // Bản dịch thô (.vi.) lên đầu; bản đã hiệu đính để cuối (ít khi hiệu đính lại).
+  const edited = f.translations.filter((b) => b.includes(".hieu-dinh."));
+  const allBooks = [...f.translations.filter((b) => !edited.includes(b)), ...f.books, ...edited].map((b) => [b, b]);
+  fillSelect("peTranslated", allBooks, saved.peTranslated, allBooks.length ? null : "— chưa có bản dịch —");
+  fillSelect("peSource", f.books.map((b) => [b, b]), saved.peSource, "— không có —");
+  fillSelect("peGuide", f.briefs.map((b) => [b, b]), saved.peGuide ?? (f.briefs.includes("huong-dan-hieu-dinh.md") ? "huong-dan-hieu-dinh.md" : ""), "— không dùng —");
+  fillSelect("peLevel", state.levels.map((l) => [l.key, l.name]), saved.peLevel ?? (first ? "vua" : undefined));
+  fillSelect("peEdits", f.edits.map((x) => [x, x]), undefined, f.edits.length ? null : "— chưa có file chỗ sửa —");
+  fillSelect("leTho", allBooks, saved.leTho, "— chọn —");
+  fillSelect("leSua", allBooks, saved.leSua, "— chọn —");
+  fillSelect("leGoc", f.books.map((b) => [b, b]), saved.leGoc, "— không có —");
+  updateLevelHint();
   if (first) {
-    for (const k of ["muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    for (const k of ["muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut", "peChapters", "peNote"]) if (saved[k] !== undefined) $(k).value = saved[k];
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || "discworld.bible.json";
     const chosen = saved.providers || ["codex", "deepseek"];
@@ -355,7 +426,8 @@ async function refresh(first = false) {
   $("results").innerHTML = f.results.length ? f.results.map(fileLink).join("") : '<li class="hint">Chưa có.</li>';
 }
 function fileLink(r) {
-  const view = r.endsWith(".md") ? ` · <a href="#" data-view="${esc(r)}">xem</a>` : "";
+  const view = r.endsWith(".md") ? ` · <a href="#" data-view="${esc(r)}">xem</a>`
+    : r.endsWith(".edits.json") ? ` · <a href="#" data-review="${esc(r)}">duyệt chỗ sửa</a>` : "";
   return `<li><a href="/api/download?t=${TOKEN}&path=${encodeURIComponent(r)}">${esc(r)}</a>${view}</li>`;
 }
 function updateGenreHint() {
@@ -366,7 +438,11 @@ function renderProviders() {
   $("provTable").innerHTML = "<tr><th>Nhà cung cấp</th><th>Trạng thái</th></tr>" + PROVIDERS.map(([k, label]) =>
     `<tr><td>${esc(label)}</td><td><span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></td></tr>`).join("");
 }
-document.addEventListener("change", (e) => { if (e.target.id === "genre") updateGenreHint(); saveForm(); });
+function updateLevelHint() {
+  const l = state.levels.find((x) => x.key === $("peLevel").value);
+  $("peLevelHint").textContent = l ? l.description : "";
+}
+document.addEventListener("change", (e) => { if (e.target.id === "genre") updateGenreHint(); if (e.target.id === "peLevel") updateLevelHint(); saveForm(); });
 document.addEventListener("input", saveForm);
 
 // ---- tải file lên ----------------------------------------------------------
@@ -398,13 +474,15 @@ $("starterBtn").onclick = async () => {
 };
 
 // ---- hướng dẫn dịch ---------------------------------------------------------
+let briefOverride = null;  // đang mở hướng dẫn hiệu đính thay vì hướng dẫn dịch
 async function loadBrief() {
-  const path = $("brief").value;
+  const path = briefOverride || $("brief").value;
+  briefOverride = null;
   $("briefName").textContent = path || "chưa chọn file";
   $("briefText").value = path ? (await api("/api/file?path=" + encodeURIComponent(path))).content : "";
 }
 $("saveBrief").onclick = async () => {
-  const path = $("brief").value; if (!path) return toast("Chưa chọn file hướng dẫn (bước 2) hoặc tạo file mới.");
+  const path = $("briefName").textContent; if (!path || path === "chưa chọn file") return toast("Chưa chọn file hướng dẫn (bước 2) hoặc tạo file mới.");
   await api("/api/file?path=" + encodeURIComponent(path), { method: "PUT", body: $("briefText").value });
   toast("Đã lưu " + path);
 };
@@ -462,11 +540,17 @@ function collect(action) {
     note: $("note").value, chunks: $("chunks").value, section: $("section").value, fresh: $("fresh").checked,
     wait: $("wait").checked, wait_hours: $("waitHours").value,
     ban_dich: $("banDich").value, ban_goc: $("banGoc").value, style_name: $("styleName").value, style_output: $("styleOut").value,
+    pe_translated: $("peTranslated").value, pe_source: $("peSource").value, pe_guide: $("peGuide").value, pe_level: $("peLevel").value,
+    pe_chapters: $("peChapters").value, pe_note: $("peNote").value,
+    le_mode: document.querySelector('input[name="leMode"]:checked').value, edits_json: review ? review.path : $("peEdits").value,
+    le_tho: $("leTho").value, le_sua: $("leSua").value, le_goc: $("leGoc").value,
   };
 }
 document.querySelectorAll("[data-action]").forEach((b) => b.onclick = async () => {
   const action = b.dataset.action;
   if (action === "translate" && !confirm("Dịch cả cuốn sẽ dùng nhiều token / hạn mức. Bạn đã dịch thử và ưng ý chưa?")) return;
+  if (action === "postedit" && !$("peChapters").value.trim() && !confirm("Hiệu đính cả cuốn sẽ dùng khá nhiều token / hạn mức. Bạn đã thử 1 chương chưa?")) return;
+  if (action === "learn_edits" && review && review.dirty && !confirm("Bạn chưa bấm \"Lưu & xuất\" — AI sẽ học theo lựa chọn nhận/bỏ đã lưu lần trước. Vẫn tiếp tục?")) return;
   try {
     const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(collect(action)) });
     currentJob = job; logNext = 0; $("log").textContent = ""; $("outputs").innerHTML = "";
@@ -475,7 +559,7 @@ document.querySelectorAll("[data-action]").forEach((b) => b.onclick = async () =
   } catch (e) { toast(e.message); }
 });
 $("cancelBtn").onclick = async () => { if (currentJob) await api(`/api/jobs/${currentJob.id}/cancel`, { method: "POST" }); };
-const ACTION_LABEL = { preview: "Dịch thử", analyze: "Lập sổ tay", translate: "Dịch cả cuốn", learn: "Học phong cách" };
+const ACTION_LABEL = { preview: "Dịch thử", analyze: "Lập sổ tay", translate: "Dịch cả cuốn", learn: "Học phong cách", postedit: "Hiệu đính", learn_edits: "Học từ bản sửa" };
 const LABEL = { interrupted: "bị ngắt (phần mềm đã tắt giữa chừng) — tiến độ vẫn được lưu", waiting: "đang chờ hạn mức hồi lại…", running: "đang chạy…", done: "xong ✓", error: "lỗi — xem nhật ký", cancelled: "đã dừng (tiến độ đã lưu)" };
 async function poll() {
   if (!currentJob) return;
@@ -501,7 +585,8 @@ function showProgress(j) {
   const pct = Math.round((100 * p.done) / p.total);
   $("progressBox").style.display = "";
   $("barFill").style.width = pct + "%";
-  $("barText").textContent = `${p.step === "Dịch" ? "Đã dịch" : "Đã phân tích"} ${p.done}/${p.total} ${p.step === "Dịch" ? "đoạn" : "chương"} (${pct}%)` + (p.finished ? " — xong" : "");
+  const unit = { "Dịch": ["Đã dịch", "đoạn"], "Hiệu đính": ["Đã hiệu đính", "nhóm đoạn"] }[p.step] || ["Đã phân tích", "chương"];
+  $("barText").textContent = `${unit[0]} ${p.done}/${p.total} ${unit[1]} (${pct}%)` + (p.finished ? " — xong" : "");
 }
 function updateResume(j) {
   const unfinished = ["interrupted", "cancelled", "error"].includes(j.status) && ["translate", "analyze"].includes(j.action);
@@ -525,7 +610,74 @@ function restoreLastJob() {
   if (["running", "interrupted", "cancelled", "error"].includes(last.status) && ["translate", "analyze"].includes(last.action))
     document.querySelector('nav button[data-tab="run"]').click();
 }
-document.addEventListener("click", (e) => { const v = e.target.dataset && e.target.dataset.view; if (v) { e.preventDefault(); $("previewName").textContent = v; showMarkdown(v); } });
+document.addEventListener("click", (e) => {
+  const d = e.target.dataset || {};
+  if (d.view) { e.preventDefault(); $("previewName").textContent = d.view; showMarkdown(d.view); }
+  if (d.review) { e.preventDefault(); document.querySelector('nav button[data-tab="postedit"]').click(); $("peEdits").value = d.review; openReview(d.review); }
+});
+
+// ---- hiệu đính: duyệt từng chỗ sửa -------------------------------------------------
+let review = null;  // { path, data, dirty }
+function markEdit(e) {
+  // Đoạn văn với chỗ sửa tô màu: <del>cũ</del><ins>mới</ins>.
+  const ctx = e.context || "", norm = (x) => x.replace(/\s+/g, " ").trim(), old = norm(e.old), i = ctx.indexOf(old);
+  const mark = `<del>${esc(old)}</del><ins>${esc(norm(e.new))}</ins>`;
+  if (i < 0) return mark;
+  const before = ctx.slice(0, i), after = ctx.slice(i + old.length);
+  const cut = (s, end) => s.length > 260 ? (end ? s.slice(0, 260) + "…" : "…" + s.slice(-260)) : s;
+  return esc(cut(before, false)) + mark + esc(cut(after, true));
+}
+function renderReview() {
+  const edits = review.data.edits, f = $("peFilter").value;
+  const on = edits.filter((e) => e.accepted).length, failed = edits.filter((e) => e.accepted && e.status === "failed").length;
+  $("peSummary").textContent = `${edits.length} chỗ sửa · nhận ${on} · bỏ ${edits.length - on}` + (failed ? ` · ${failed} chỗ không áp được (câu cũ không khớp)` : "") +
+    ` · mức ${review.data.level || ""} · ${review.data.created || ""}` + (review.dirty ? " · CHƯA LƯU" : "");
+  const show = edits.filter((e) => f === "all" || (f === "on" && e.accepted) || (f === "off" && !e.accepted) || (f === "failed" && e.status === "failed"));
+  $("editList").innerHTML = show.length ? show.map((e) => `<div class="edit ${e.accepted ? "" : "off"}" data-id="${e.id}">
+    <input type="checkbox" data-eid="${e.id}" ${e.accepted ? "checked" : ""} title="Nhận chỗ sửa này">
+    <div><div class="meta">#${e.id} · ${esc(e.title || e.section)} · <b>${esc(e.why || "")}</b>${e.status === "failed" ? ' · <span class="badge no">không áp được</span>' : ""}</div>
+    <div class="para">${markEdit(e)}</div>
+    ${e.source ? `<details><summary>bản gốc</summary>${esc(e.source)}</details>` : ""}</div></div>`).join("") : '<p class="hint">Không có chỗ sửa nào.</p>';
+}
+async function openReview(rel) {
+  if (!rel) return toast("Chưa có file chỗ sửa — chạy hiệu đính trước.");
+  try {
+    const r = await api("/api/file?path=" + encodeURIComponent(rel));
+    if (!r.exists) return toast("Không tìm thấy " + rel);
+    review = { path: rel, data: JSON.parse(r.content), dirty: false };
+    $("peReview").style.display = ""; $("peResult").innerHTML = ""; renderReview();
+  } catch (e) { toast(e.message); }
+}
+$("peOpen").onclick = () => openReview($("peEdits").value);
+$("peFilter").onchange = () => review && renderReview();
+$("editList").addEventListener("change", (e) => {
+  const id = e.target.dataset.eid; if (!id || !review) return;
+  const ed = review.data.edits.find((x) => String(x.id) === id); ed.accepted = e.target.checked; review.dirty = true;
+  e.target.closest(".edit").classList.toggle("off", !ed.accepted); renderReview();
+});
+const setAll = (v) => { if (!review) return; review.data.edits.forEach((e) => e.accepted = v); review.dirty = true; renderReview(); };
+$("peAll").onclick = () => setAll(true);
+$("peNone").onclick = () => setAll(false);
+$("peApply").onclick = async () => {
+  if (!review) return;
+  try {
+    const decisions = Object.fromEntries(review.data.edits.map((e) => [e.id, !!e.accepted]));
+    const r = await api("/api/postedit/apply", { method: "POST", body: JSON.stringify({ path: review.path, decisions }) });
+    await openReview(review.path);
+    $("peResult").innerHTML = `<p>Đã xuất <b>${r.applied}</b> chỗ sửa${r.failed ? `, ${r.failed} chỗ không áp được` : ""} → ${fileLink(r.output).replace(/^<li>|<\/li>$/g, "")}</p>`;
+    toast("Đã lưu & xuất bản hiệu đính");
+    refresh();
+  } catch (e) { toast(e.message); }
+};
+$("peGuideNew").onclick = async () => {
+  try { const r = await api("/api/postedit/guide", { method: "POST" }); await refresh(); $("peGuide").value = r.path; saveForm(); toast("Đã tạo " + r.path + " — bấm Sửa để thêm yêu cầu của bạn."); }
+  catch (e) { toast(e.message); }
+};
+$("peGuideEdit").onclick = () => {
+  const g = $("peGuide").value; if (!g) return toast("Chưa chọn hướng dẫn hiệu đính — bấm Tạo hướng dẫn mẫu.");
+  briefOverride = g; document.querySelector('nav button[data-tab="brief"]').click();
+};
+document.querySelectorAll('input[name="leMode"]').forEach((r) => r.onchange = () => $("leDocs").style.display = r.value === "docs" && r.checked ? "" : "none");
 
 // ---- xem bản dịch thử (Markdown tối giản) ----------------------------------------
 function renderMarkdown(md) {

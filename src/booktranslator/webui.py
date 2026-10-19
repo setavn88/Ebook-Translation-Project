@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from .cli import PRESETS
 from .document import SUPPORTED, default_output_path
 from .genres import BUILTIN as GENRES
+from .postedit import LEVELS, apply_edits_file, edits_path
 from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, CODEX_PATH_ENV, check_claude_code, check_codex, find_claude, find_codex
 from .styles import BUILTIN as STYLES
 
@@ -150,7 +151,7 @@ class App:
 
     def progress(self, job: Job) -> dict | None:
         """Tiến độ cả cuốn (file <kết quả>.progress.json do tiến trình dịch ghi ra)."""
-        if job.action not in ("translate", "analyze") or not job.outputs:
+        if job.action not in ("translate", "analyze", "postedit") or not job.outputs:
             return None
         try:
             path = self.resolve(job.outputs[0])
@@ -182,12 +183,16 @@ class App:
             and not p.name.endswith(".progress.json")
         )
         rels = [self.rel(p) for p in files]
+        reports = (".preview.md", ".consistency.md")
+        is_result = lambda r: ".vi." in r or ".hieu-dinh." in r or r.endswith(reports)
         return {
-            "books": [r for r in rels if r.lower().endswith(SUPPORTED) and ".vi." not in r and not r.endswith(".preview.md")],
-            "briefs": [r for r in rels if r.endswith(".md") and not r.endswith((".preview.md", ".consistency.md"))],
+            "books": [r for r in rels if r.lower().endswith(SUPPORTED) and not is_result(r)],
+            "translations": [r for r in rels if r.lower().endswith(SUPPORTED) and is_result(r) and not r.endswith(reports)],
+            "briefs": [r for r in rels if r.endswith(".md") and not r.endswith(reports)],
             "bibles": [r for r in rels if r.endswith(".bible.json")],
-            "jsons": [r for r in rels if r.endswith(".json") and not r.endswith(".bible.json")],
-            "results": [r for r in rels if ".vi." in r or r.endswith((".preview.md", ".consistency.md"))],
+            "jsons": [r for r in rels if r.endswith(".json") and not r.endswith((".bible.json", ".edits.json"))],
+            "edits": [r for r in rels if r.endswith(".edits.json")],
+            "results": [r for r in rels if is_result(r)],
         }
 
     def install_starter(self) -> list[str]:
@@ -204,6 +209,33 @@ class App:
                 shutil.copy2(f, target)
             copied.append(self.rel(target))
         return copied
+
+    def install_edit_guide(self) -> str:
+        """Tạo file hướng dẫn hiệu đính mặc định trong thư mục làm việc (không ghi đè file đã có)."""
+        target = self.workspace / "huong-dan-hieu-dinh.md"
+        if not target.exists():
+            src = EXAMPLES_DIR / "huong-dan-hieu-dinh.md"
+            if src.is_file():
+                shutil.copy2(src, target)
+            else:
+                target.write_text("# Hướng dẫn hiệu đính\n\n## Ghi chú của tôi\n- \n", encoding="utf-8")
+        return self.rel(target)
+
+    def apply_edits(self, rel: str, decisions: dict) -> dict:
+        """Xuất lại bản hiệu đính theo các chỗ sửa người dùng đã nhận/bỏ trên giao diện."""
+        path = self.resolve(rel)
+        if not path.name.endswith(".edits.json") or not path.is_file():
+            raise FileNotFoundError(f"Không tìm thấy file chỗ sửa: {rel}")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for key in ("translated", "output"):  # file sửa tay không được trỏ ra ngoài thư mục làm việc
+            target = Path(data.get(key) or "")
+            target = target if target.is_absolute() else path.parent / target
+            if not target.resolve().is_relative_to(self.workspace):
+                raise PermissionError("File chỗ sửa trỏ ra ngoài thư mục làm việc")
+        applied, failed = apply_edits_file(path, {int(k): bool(v) for k, v in (decisions or {}).items()})
+        out = Path(data["output"])
+        out = out if out.is_absolute() else path.parent / out
+        return {"applied": applied, "failed": failed, "output": self.rel(out)}
 
     # ---- trạng thái -------------------------------------------------------
 
@@ -247,6 +279,7 @@ class App:
             "genres": [{"key": g.key, "name": g.name, "description": g.description, "effort": g.effort} for g in GENRES.values()],
             "styles": [{"key": s.key, "name": s.name, "description": s.description} for s in STYLES.values()],
             "presets": list(PRESETS),
+            "levels": [{"key": k, "name": name, "description": how} for k, (name, how) in LEVELS.items()],
             "providers": self.providers_status(),
             "jobs": [j.summary() | {"progress": self.progress(j)}
                      for j in sorted(self.jobs.values(), key=lambda j: j.started, reverse=True)],
@@ -279,19 +312,50 @@ class App:
             argv += self._api_args(opts)
             return action, argv, [self.rel(out)]
 
-        commands = {"preview": "dich-thu", "analyze": "phan-tich", "translate": "dich"}
+        def bible_path(default_stem: str) -> Path:
+            rel = _safe_name(opts.get("bible") or f"{default_stem}.bible.json")
+            if not rel.endswith(".bible.json"):
+                rel = rel.removesuffix(".json") + ".bible.json"
+            return self.resolve(rel)
+
+        def guide_path() -> Path:
+            rel = (opts.get("pe_guide") or "").strip() or "huong-dan-hieu-dinh.md"
+            path = self.resolve(rel)
+            if path.suffix != ".md":
+                raise ValueError("Hướng dẫn hiệu đính phải là file .md")
+            return path
+
+        # AI hiệu đính / rút bài học = các AI đã chọn ở ô "Người biên tập".
+        editor_opts = opts | {"providers": opts.get("editors") or []}
+
+        if action == "learn_edits":
+            argv = ["hoc-tu-ban-sua"]
+            if opts.get("le_mode") == "docs":
+                tho, sua = file_opt("le_tho"), file_opt("le_sua")
+                if not (tho and sua):
+                    raise ValueError("Chọn cả bản trước khi sửa và bản đã sửa")
+                argv += [f"--ban-tho={tho}", f"--ban-sua={sua}"]
+                if goc := file_opt("le_goc"):
+                    argv.append(f"--ban-goc={goc}")
+            else:
+                edits = file_opt("edits_json")
+                if not edits:
+                    raise ValueError("Chưa chọn file chỗ sửa (.edits.json)")
+                argv.append(f"--edits-json={edits}")
+            bible, guide = bible_path("so-tay"), guide_path()
+            argv += [f"--so-tay={bible}", f"--huong-dan-hieu-dinh={guide}", *self._api_args(editor_opts)]
+            return action, argv, [self.rel(guide), self.rel(bible)]
+
+        commands = {"preview": "dich-thu", "analyze": "phan-tich", "translate": "dich", "postedit": "hieu-dinh"}
         if action not in commands:
             raise ValueError(f"Tác vụ không hợp lệ: {action}")
-        book = file_opt("book")
+        book = file_opt("pe_translated" if action == "postedit" else "book")
         if not book:
-            raise ValueError("Chưa chọn sách")
+            raise ValueError("Chưa chọn bản dịch cần hiệu đính" if action == "postedit" else "Chưa chọn sách")
         genre = opts.get("genre") or "general"
         if genre not in GENRES:
             raise ValueError(f"Thể loại không hợp lệ: {genre}")
-        bible_rel = _safe_name(opts.get("bible") or f"{Path(book).stem}.bible.json")
-        if not bible_rel.endswith(".bible.json"):
-            bible_rel = bible_rel.removesuffix(".json") + ".bible.json"
-        bible = self.resolve(bible_rel)
+        bible = bible_path(Path(book).stem)
 
         argv = [commands[action], book, f"--the-loai={genre}"]
         style = opts.get("style") or "natural"
@@ -305,6 +369,29 @@ class App:
             argv.append(f"--huong-dan={brief}")
         if glossary := file_opt("glossary"):
             argv.append(f"--glossary={glossary}")
+
+        if action == "postedit":
+            argv += self._api_args(editor_opts)
+            if source := file_opt("pe_source"):
+                argv.append(f"--ban-goc={source}")
+            if bible.exists():
+                argv.append(f"--so-tay={bible}")
+            guide = guide_path()
+            if guide.exists():
+                argv.append(f"--huong-dan-hieu-dinh={guide}")
+            if (level := opts.get("pe_level") or "vua") not in LEVELS:
+                raise ValueError(f"Mức hiệu đính không hợp lệ: {level}")
+            argv.append(f"--muc-hieu-dinh={level}")
+            if chapters := (opts.get("pe_chapters") or "").strip():
+                if not re.fullmatch(r"[\d\s,\-]+", chapters):
+                    raise ValueError("Chương cần hiệu đính ghi dạng 1,3-5")
+                argv.append(f"--chuong={chapters}")
+            if note := (opts.get("pe_note") or "").strip():
+                argv.append(f"--yeu-cau={note}")
+            src = Path(book)
+            out = src.with_name(f"{src.stem}.hieu-dinh{src.suffix}")
+            return action, argv, [self.rel(out), self.rel(edits_path(out))]
+
         argv += self._api_args(opts)
 
         outputs: list[str] = []
@@ -479,6 +566,11 @@ def make_handler(app: App):
                 return self._json(app.test_claude())
             if method == "POST" and path == "/api/test-codex":
                 return self._json(app.test_codex())
+            if method == "POST" and path == "/api/postedit/guide":
+                return self._json({"path": app.install_edit_guide()})
+            if method == "POST" and path == "/api/postedit/apply":
+                data = json.loads(self._body() or b"{}")
+                return self._json(app.apply_edits(str(data.get("path", "")), data.get("decisions") or {}))
             if method == "POST" and path == "/api/starter":
                 return self._json({"files": app.install_starter()})
             if method == "POST" and path == "/api/upload":

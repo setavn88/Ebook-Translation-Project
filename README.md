@@ -238,6 +238,43 @@ booktranslator hoc-phong-cach "HP1 - Lý Lan.epub" --ban-goc "HP1 - English.epub
 
 Tự viết hồ sơ phong cách cũng được: xem [`examples/phong-cach-mau.json`](examples/phong-cach-mau.json). File kế thừa `base`, thêm `examples`, có thể ghi đè `principles`/`naming`/`addressing`.
 
+## Hiệu đính sau khi dịch
+
+Bản dịch thô thường còn câu cứng, nghĩa đen. Bước **hiệu đính** cho AI đọc lại bản dịch đã có và **chỉ trả về những câu cần sửa** (cũ → mới, kèm lý do), không viết lại cả cuốn, nên tốn ít token. Thử thật trên phần mở đầu "The Color of Magic" (15 đoạn): 9 chỗ sửa, khoảng 14 nghìn token.
+
+Trên giao diện, dùng tab **✎ Hiệu đính**:
+
+1. **Chạy hiệu đính.** Chọn bản dịch, bản gốc (khuyên dùng), mức sửa và hướng dẫn hiệu đính.
+   - Mức **Nhẹ** chỉ sửa lỗi rõ.
+   - Mức **Vừa** sửa thêm câu "văn dịch".
+   - Mức **Sâu** viết lại mạnh tay.
+   - Hướng dẫn hiệu đính là prompt riêng của bạn. Bấm "Tạo hướng dẫn mẫu" rồi sửa.
+   - Nên thử 1 chương trước.
+2. **Duyệt từng chỗ sửa.** Chữ cũ hiện gạch đỏ, chữ mới tô xanh. Bỏ tick những chỗ không ưng, rồi bấm **Lưu & xuất bản hiệu đính**. Bản dịch gốc luôn được giữ nguyên, nên duyệt lại bao nhiêu lần cũng được.
+3. **Học từ bản sửa.** AI so bản trước và sau khi sửa:
+   - Tên được thống nhất lại (vd. "quỷ lùn" → "Quỷ Đá") được ghi thẳng vào sổ tay.
+   - Bài học về câu chữ và vài ví dụ được nối vào cuối hướng dẫn hiệu đính.
+   - Nguồn học là các chỗ sửa bạn đã duyệt (chỗ bị bỏ thành bài học "tránh"), hoặc hai bản: bản thô và bản bạn/AI khác đã sửa tay.
+   - Lần dịch hoặc hiệu đính sau sẽ tự làm theo.
+
+Dòng lệnh tương ứng:
+
+```bash
+booktranslator hieu-dinh "The Colour of Magic.vi.epub" --ban-goc "The Colour of Magic.epub" -g comic \
+  --huong-dan discworld/huong-dan-dich.md --so-tay "The Colour of Magic.vi.epub.bible.json" \
+  --huong-dan-hieu-dinh huong-dan-hieu-dinh.md --muc-hieu-dinh vua --chuong 9
+# → The Colour of Magic.vi.hieu-dinh.epub + ….edits.json (danh sách chỗ sửa)
+
+booktranslator ap-hieu-dinh "The Colour of Magic.vi.hieu-dinh.epub.edits.json" --bo 3,7-9   # bỏ vài chỗ rồi xuất lại
+
+booktranslator hoc-tu-ban-sua --ban-tho raw.epub --ban-sua codex.epub \
+  --so-tay discworld.bible.json --huong-dan-hieu-dinh huong-dan-hieu-dinh.md
+```
+
+- AI hiệu đính mặc định là `claude-code,codex,deepseek`, theo đúng thứ tự dự phòng khi hết hạn mức. Đổi bằng `--bien-tap-bang`.
+- Chỗ sửa chạy qua chữ in nghiêng hay chữ hoa nhỏ vẫn giữ nguyên thẻ định dạng EPUB.
+- Nếu AI chép sai câu cũ, chỗ đó được đánh dấu "không áp được" để bạn tự xem.
+
 ## 4. Tiết kiệm token và đổi API
 
 ### Mức chất lượng / chi phí (`--muc`)
@@ -311,6 +348,9 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `--chunk-chars` | `6000` | Kích thước mỗi đoạn |
 | `--workers` | `4` | Số chương xử lý song song |
 | `dich-thu --section N --chunks K` | chương đủ dài đầu tiên, 2 đoạn | Chọn đoạn dịch thử |
+| `hieu-dinh --muc-hieu-dinh` | `vua` | Mức hiệu đính: `nhe` / `vua` / `sau` |
+| `hieu-dinh --huong-dan-hieu-dinh FILE` | | Prompt hiệu đính riêng của bạn |
+| `hieu-dinh --chuong "1,3-5"` | cả cuốn | Chỉ hiệu đính các chương này |
 
 ## Docker
 

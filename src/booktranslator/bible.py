@@ -124,6 +124,22 @@ class StoryBible:
                 copy.add_addressing(deepcopy(a))
             return copy
 
+    def set_target(self, source: str, target: str, type: str = "term") -> str:
+        """Đổi hẳn bản dịch của một tên — chỉ dùng cho quyết định của người dùng (vd. học từ bản họ tự sửa).
+        Trả về "added" | "updated" | "same"."""
+        with self._lock:
+            existing = self.find(source)
+            if existing is None:
+                return "added" if self.add_entity(Entity(source=source, target=target, type=type)) else "same"
+            if existing.target == target:
+                return "same"
+            existing.target = target
+            return "updated"
+
+    def find_by_target(self, target: str) -> list[Entity]:
+        with self._lock:
+            return [e for e in self.entities.values() if _norm(e.target) == _norm(target)]
+
     def import_glossary(self, glossary: dict[str, str]) -> None:
         for src, dst in glossary.items():
             self.add_entity(Entity(source=src, target=dst, type="term"))

@@ -232,3 +232,54 @@ def test_provider_spec_with_models():
 
     assert provider_spec(["codex", "deepseek"], {"deepseek": "deepseek-reasoner"}) == "codex,deepseek:deepseek-reasoner"
     assert provider_spec(["deepseek", "bad"], {"deepseek": "x; rm -rf /"}) == "deepseek"  # model lạ bị bỏ qua
+
+
+def test_postedit_jobs_review_and_apply(server):
+    app, call, _ = server
+    ws = app.workspace
+    (ws / "book.epub").write_bytes(b"x")
+    (ws / "book.vi.md").write_text("Câu thô một.\n\nCâu hay.", encoding="utf-8")
+    (ws / "so.bible.json").write_text('{"entities": []}', encoding="utf-8")
+    files = call("/api/state")[1]["files"]
+    assert files["translations"] == ["book.vi.md"] and files["books"] == ["book.epub"]
+
+    status, r = call("/api/postedit/guide", "POST")
+    assert status == 200 and (ws / r["path"]).read_text(encoding="utf-8").startswith("# Hướng dẫn hiệu đính")
+
+    opts = {"action": "postedit", "pe_translated": "book.vi.md", "pe_source": "book.epub", "pe_guide": r["path"],
+            "pe_level": "sau", "pe_chapters": "1,3-5", "bible": "so.bible.json", "genre": "comic",
+            "providers": ["codex"], "editors": ["claude-code", "codex"]}
+    action, argv, outputs = app.build_job(opts)
+    assert argv[:2] == ["hieu-dinh", str(ws / "book.vi.md")]
+    assert "--providers=claude-code,codex" in argv and f"--ban-goc={ws / 'book.epub'}" in argv
+    assert "--muc-hieu-dinh=sau" in argv and "--chuong=1,3-5" in argv and f"--so-tay={ws / 'so.bible.json'}" in argv
+    assert outputs == ["book.vi.hieu-dinh.md", "book.vi.hieu-dinh.md.edits.json"]
+    with pytest.raises(ValueError):
+        app.build_job(opts | {"pe_chapters": "1; rm -rf"})
+    with pytest.raises(ValueError):
+        app.build_job(opts | {"pe_level": "x"})
+
+    action, argv, outputs = app.build_job({"action": "learn_edits", "le_mode": "docs", "le_tho": "book.vi.md",
+                                           "le_sua": "book.vi.md", "bible": "so.bible.json", "pe_guide": r["path"]})
+    assert argv[0] == "hoc-tu-ban-sua" and f"--huong-dan-hieu-dinh={ws / r['path']}" in argv
+    assert outputs == [r["path"], "so.bible.json"]
+    with pytest.raises(ValueError):
+        app.build_job({"action": "learn_edits"})
+
+    # Duyệt: bỏ chỗ sửa số 1 rồi xuất lại.
+    from booktranslator.postedit import Edit, save_edits
+
+    out, log = ws / "book.vi.hieu-dinh.md", ws / "book.vi.hieu-dinh.md.edits.json"
+    edits = [Edit(1, "sec-0001", "", 0, "thô", "mượt"), Edit(2, "sec-0001", "", 1, "hay", "rất hay")]
+    save_edits(log, ws / "book.vi.md", None, out, "vua", edits)
+    assert call("/api/state")[1]["files"]["edits"] == ["book.vi.hieu-dinh.md.edits.json"]
+    assert "book.vi.hieu-dinh.md.edits.json" not in call("/api/state")[1]["files"]["jsons"]
+    status, r = call("/api/postedit/apply", "POST", {"path": log.name, "decisions": {"1": False, "2": True}})
+    assert status == 200 and r == {"applied": 1, "failed": 0, "output": "book.vi.hieu-dinh.md"}
+    assert out.read_text(encoding="utf-8") == "Câu thô một.\n\nCâu rất hay.\n"
+    assert json.loads(log.read_text(encoding="utf-8"))["edits"][0]["accepted"] is False
+
+    data = json.loads(log.read_text(encoding="utf-8"))
+    data["output"] = "/tmp/evil.md"
+    log.write_text(json.dumps(data), encoding="utf-8")
+    assert call("/api/postedit/apply", "POST", {"path": log.name})[0] == 400
