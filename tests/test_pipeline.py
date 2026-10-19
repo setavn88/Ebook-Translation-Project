@@ -240,7 +240,7 @@ def test_cli_chains_use_preset_models(monkeypatch):
     assert a_over["claude"] == a_over["claude-code"] == "claude-haiku-5-5"
     assert t_spec == [("claude", None), ("deepseek", None)]
     seen.clear()
-    args = cli.build_parser().parse_args(["dich", "x.epub", "--model", "claude-fable-5-1"])
+    args = cli.build_parser().parse_args(["dich", "x.epub", "--providers", "claude", "--model", "claude-fable-5-1"])
     cli._chains(args)
     assert seen[0][0] == [("claude", "claude-fable-5-1")] and seen[1][0] == [("claude", None)]
 
@@ -270,11 +270,30 @@ def test_cli_writes_progress_file(tmp_path, fake_api):
     assert analysis["finished"] is True and analysis["total"] == 2
 
 
-def test_cli_editor_chain(monkeypatch):
+def test_cli_default_roles_codex_translates_claude_code_edits(monkeypatch):
     seen = []
     monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(spec) or fake_chain()[0])
-    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(
-        ["dich", "x.epub", "--providers", "codex,deepseek", "--bien-tap-bang", "claude-code"]))
-    assert seen[0] == [("codex", None), ("deepseek", None)] and seen[-1] == "claude-code"
-    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]))
-    assert editor is llm
+    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]), need_editor=True)
+    assert seen[0] == [("codex", None), ("deepseek", None)]  # người dịch mặc định
+    assert seen[-1] == "claude-code,deepseek" and editor is not llm  # biên tập mặc định
+    seen.clear()
+    cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--bien-tap-bang", "codex"]), need_editor=True)
+    assert seen[-1] == "codex"
+
+
+def test_cli_editor_chain_only_when_needed(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(spec) or fake_chain()[0])
+    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["phan-tich", "x.epub"]))
+    assert editor is llm and "claude-code,deepseek" not in seen  # lập sổ tay / học phong cách / không biên tập
+
+
+def test_cli_missing_editor_falls_back_to_translator(monkeypatch, capsys):
+    def build(spec, fb, override, wait=0):
+        if spec == "claude-code,deepseek":
+            raise ValueError("Không dùng được nhà cung cấp nào: Chưa cài Claude Code; Thiếu DEEPSEEK_API_KEY")
+        return fake_chain()[0]
+
+    monkeypatch.setattr(cli, "build_chain", build)
+    llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]), need_editor=True)
+    assert editor is llm and "Bước biên tập sẽ do người dịch" in capsys.readouterr().err

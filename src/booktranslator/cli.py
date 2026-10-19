@@ -54,7 +54,7 @@ def _load_glossary(path: Path | None) -> dict[str, str]:
 
 def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument(
-        "--providers", default="codex,deepseek",
+        "--providers", default=DEFAULT_TRANSLATORS,
         help="Nhà cung cấp theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
              "Mặc định: codex,deepseek (Codex dịch, DeepSeek dự phòng). Vd: claude-code (gói Claude Pro/Max), "
              "codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
@@ -226,7 +226,11 @@ def _effort(args, genre_effort: str) -> str:
     return effort
 
 
-def _chains(args):
+DEFAULT_TRANSLATORS = "codex,deepseek"
+DEFAULT_EDITORS = "claude-code,deepseek"
+
+
+def _chains(args, need_editor: bool = False):
     """(chuỗi dịch, chuỗi phân tích, chuỗi biên tập). Mức --muc chỉ chọn model Claude khi người dùng không tự chọn."""
     preset = PRESETS[getattr(args, "muc", "can-bang")]
     spec = parse_spec(args.providers)
@@ -240,8 +244,17 @@ def _chains(args):
     )
     if analysis.id == llm.id:
         analysis = llm
-    editor_spec = getattr(args, "editor_providers", None) or "claude-code,deepseek"
-    editor = build_chain(editor_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
+    editor = llm
+    if need_editor:  # chỉ dựng chuỗi biên tập khi thật sự có bước biên tập (dich-thu / dich có polish)
+        editor_spec = getattr(args, "editor_providers", None) or DEFAULT_EDITORS
+        try:
+            editor = build_chain(
+                editor_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait
+            )
+        except ValueError as e:
+            # Không AI biên tập nào dùng được (vd. chưa cài Claude Code, chưa có key DeepSeek): vẫn dịch được,
+            # để người dịch tự biên tập thay vì dừng hẳn.
+            _err(f"Cảnh báo: {e}. Bước biên tập sẽ do người dịch ({llm.active.id}) làm.")
     return llm, analysis, editor
 
 
@@ -296,7 +309,7 @@ def _run(args, progress) -> int:
         brief=args.brief.read_text(encoding="utf-8") if args.brief else "",
         polish=preset["polish"] if polish is None else polish,
     )
-    llm, analysis_llm, editor_llm = _chains(args)
+    llm, analysis_llm, editor_llm = _chains(args, need_editor=args.cmd in ("preview", "translate") and config.polish)
     output, bible_path, cache_path = _paths(args)
     doc = load_document(args.input, args.chunk_chars)
     bible = StoryBible.load(bible_path)

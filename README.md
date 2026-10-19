@@ -245,6 +245,8 @@ Tự viết hồ sơ phong cách cũng được: xem [`examples/phong-cach-mau.j
 | `can-bang` *(mặc định)* | `claude-opus-5-5` | `claude-sonnet-5-5` | có | theo thể loại |
 | `cao-cap` | `claude-opus-5-5` | `claude-opus-5-5` | có | tối thiểu `high` |
 
+Cột model chỉ áp dụng cho Claude Code / Claude API. Codex dùng model mặc định trong cấu hình Codex của bạn, DeepSeek dùng `deepseek-chat`; muốn đổi thì ghi `tên:model` trong `--providers`. Riêng "Biên tập" (bật/tắt) và "Effort" áp dụng cho mọi AI.
+
 - `--model` ghi đè model dịch, ví dụ `--model claude-fable-5-1`: model mạnh nhất, giá khoảng 2,5 lần Opus. Nên so hai bản bằng `dich-thu` trước.
 - `--effort`, `--polish`, `--no-polish` ghi đè từng phần của mức đã chọn.
 
