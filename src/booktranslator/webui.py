@@ -240,6 +240,7 @@ class App:
             "settings": self.load_settings(),
             "starter_available": (EXAMPLES_DIR / "discworld").is_dir(),
             "claude_path": self._claude_exe() or "",
+            "codex_path": find_codex() or "",
         }
 
     # ---- tác vụ -----------------------------------------------------------
@@ -451,6 +452,12 @@ def make_handler(app: App):
                     app.save_settings(json.loads(self._body() or b"{}"))
                     return self._json({"saved": True})
                 return self._json(app.load_settings())
+            if method == "POST" and path == "/api/codex-path":
+                value = str(json.loads(self._body() or b"{}").get("path", "")).strip().strip('"')
+                if value and not os.path.isfile(value):
+                    raise FileNotFoundError(f"Không có file: {value}")
+                os.environ[CODEX_PATH_ENV] = value  # find_codex() và các tác vụ dịch đều đọc biến này
+                return self._json({"providers": app.providers_status(), "path": find_codex() or ""})
             if method == "POST" and path == "/api/claude-path":
                 value = str(json.loads(self._body() or b"{}").get("path", "")).strip().strip('"')
                 if value and not os.path.isfile(value):

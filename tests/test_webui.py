@@ -211,3 +211,17 @@ def test_old_jobs_are_pruned(tmp_path):
         (app.jobs_dir / f"j{i}.json").write_text(json.dumps({
             "id": f"j{i}", "action": "preview", "argv": [], "outputs": [], "status": "done", "started": i}))
     assert len(App(tmp_path).jobs) == MAX_JOBS_KEPT
+
+
+def test_codex_path_setting(server, tmp_path, monkeypatch):
+    app, call, _ = server
+    import booktranslator.providers as prov
+
+    monkeypatch.setattr(prov.shutil, "which", lambda name: None)
+    monkeypatch.setattr(prov, "_npm_prefix_cache", [None])
+    monkeypatch.setenv("BT_CODEX_PATH", "")
+    assert call("/api/codex-path", "POST", {"path": str(tmp_path / "khong-co.cmd")})[0] == 400
+    exe = tmp_path / "codex.cmd"
+    exe.write_text("")
+    status, r = call("/api/codex-path", "POST", {"path": f'"{exe}"'})
+    assert status == 200 and r["providers"]["codex"] is True and r["path"] == str(exe)

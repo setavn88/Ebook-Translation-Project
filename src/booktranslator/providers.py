@@ -304,15 +304,39 @@ class ClaudeCodeProvider(Provider):
 CODEX_PATH_ENV = "BT_CODEX_PATH"
 
 
+_npm_prefix_cache: list[str | None] = []
+
+
+def _npm_global_dir() -> str | None:
+    """Thư mục npm cài lệnh toàn cục (`npm install -g`) — khác nhau tùy máy (nvm, đổi prefix...)."""
+    if not _npm_prefix_cache:
+        prefix = None
+        npm = shutil.which("npm")
+        if npm:
+            try:
+                out = subprocess.run([npm, "config", "get", "prefix"], capture_output=True, timeout=20)
+                prefix = out.stdout.decode("utf-8", errors="replace").strip() or None
+            except (OSError, subprocess.TimeoutExpired):
+                prefix = None
+        _npm_prefix_cache.append(prefix)
+    return _npm_prefix_cache[0]
+
+
 def find_codex() -> str | None:
-    """Tìm lệnh `codex`: biến BT_CODEX_PATH, PATH, rồi các chỗ cài npm quen thuộc."""
+    """Tìm lệnh `codex`: biến BT_CODEX_PATH, PATH, thư mục npm toàn cục, rồi các chỗ cài quen thuộc.
+
+    Cửa sổ đã mở từ trước khi cài Codex không thấy PATH mới, nên phải tự dò thư mục npm.
+    """
     custom = os.environ.get(CODEX_PATH_ENV, "").strip().strip('"')
     if custom and os.path.isfile(custom):
         return custom
     found = shutil.which("codex")
     if found:
         return found
-    candidates = [
+    candidates = []
+    if prefix := _npm_global_dir():
+        candidates += [os.path.join(prefix, "codex.cmd"), os.path.join(prefix, "bin", "codex")]
+    candidates += [
         os.path.join(os.environ.get("APPDATA", ""), "npm", "codex.cmd"),
         os.path.join(os.path.expanduser("~"), ".local", "bin", "codex"),
         "/opt/homebrew/bin/codex",

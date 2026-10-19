@@ -457,3 +457,19 @@ def test_codex_not_logged_in_fails_fast(fake_codex, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "logged_out")
     with pytest.raises(ProviderUnavailable, match="codex login"):
         CodexProvider(executable=fake_codex)
+
+
+def test_find_codex_via_npm_prefix(tmp_path, monkeypatch):
+    import booktranslator.providers as prov
+
+    prefix = tmp_path / "custom-npm"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "codex").write_text("")
+    npm = tmp_path / "npm"
+    npm.write_text(f"#!/bin/sh\necho {prefix}\n")
+    npm.chmod(0o755)
+    real_which = prov.shutil.which
+    monkeypatch.setattr(prov.shutil, "which", lambda name: str(npm) if name == "npm" else None)
+    monkeypatch.delenv("BT_CODEX_PATH", raising=False)
+    monkeypatch.setattr(prov, "_npm_prefix_cache", [])
+    assert prov.find_codex() == str(prefix / "bin" / "codex")

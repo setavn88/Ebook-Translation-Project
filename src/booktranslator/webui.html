@@ -248,6 +248,12 @@ a { color: var(--accent); }
       <li>Bấm <b>Kiểm tra kết nối</b> bên dưới.</li>
     </ol>
     <div class="row"><button class="btn primary" id="testCodex">Kiểm tra kết nối Codex</button><span id="codexMsg" class="hint"></span></div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="codexPath" placeholder="Nếu cài rồi mà vẫn không thấy: dán đường dẫn tới codex.cmd, vd. C:\Users\Ten\AppData\Roaming\npm\codex.cmd" style="flex:1">
+      <button class="btn" id="setCodexPath">Dùng đường dẫn này</button></div>
+    <p class="hint">Mới cài Codex khi giao diện đang mở? Hãy đóng cửa sổ đen của Mo-giao-dien.bat rồi mở lại.
+      Tìm đường dẫn: mở PowerShell <b>mới</b>, gõ <code>where.exe codex</code> (macOS: <code>which codex</code>).
+      Không ra gì nghĩa là chưa cài <b>Codex CLI</b> (ứng dụng Codex hay tiện ích VS Code là thứ khác) — chạy <code>npm install -g @openai/codex</code>.</p>
   </div>
   <div class="card grid">
     <div><label for="kClaude">Claude API key (ANTHROPIC_API_KEY)</label><input type="password" id="kClaude" placeholder="sk-ant-..."></div>
@@ -339,6 +345,7 @@ async function refresh(first = false) {
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
   if (first && state.claude_path) $("claudePath").value = state.claude_path;
+  if (first && state.codex_path) $("codexPath").value = state.codex_path;
   updateGenreHint();
   renderProviders();
   if (first) { formReady = true; restoreLastJob(); }
@@ -569,6 +576,12 @@ $("testCodex").onclick = async () => {
     await refresh(); updateProviderBadges(state.providers);
   } catch (e) { $("codexMsg").textContent = "✗ " + e.message; }
   btn.disabled = false;
+};
+$("setCodexPath").onclick = async () => {
+  try {
+    const r = await api("/api/codex-path", { method: "POST", body: JSON.stringify({ path: $("codexPath").value }) });
+    updateProviderBadges(r.providers); toast(r.path ? "Đã dùng: " + r.path : "Chưa tìm thấy Codex");
+  } catch (e) { toast(e.message); }
 };
 $("setClaudePath").onclick = async () => {
   try {
