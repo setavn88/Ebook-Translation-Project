@@ -64,7 +64,24 @@ def translation_reply(translation: str, updates: dict | None = None) -> str:
     return f"<translation>\n{translation}\n</translation>\n<bible_updates>{json.dumps(updates, ensure_ascii=False)}</bible_updates>"
 
 
+_FIX_RE = re.compile(r"<names>\n(.*?)\n</names>.*<translation_to_fix>\n(.*)\n</translation_to_fix>", re.DOTALL)
+
+
+def fix_names_reply(user: str) -> Completion | None:
+    """Bước soát tên: thay tên gốc / biến thể bằng đúng bản dịch trong danh sách."""
+    m = _FIX_RE.search(user)
+    if not m:
+        return None
+    text = m.group(2)
+    for line in m.group(1).splitlines():
+        src, dst = line[2:].split(" → ", 1)
+        text = re.sub(re.escape(src), dst, text, flags=re.IGNORECASE)
+    return Completion(f"<translation>\n{text}\n</translation>", "end")
+
+
 def default_responder(system: str, user: str) -> Completion:
+    if (fixed := fix_names_reply(user)) is not None:
+        return fixed
     draft = draft_of(user)
     if draft is not None:  # bước biên tập: giữ nguyên bản nháp
         return Completion(f"<translation>\n{draft}\n</translation>", "end")

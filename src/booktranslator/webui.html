@@ -124,11 +124,14 @@ a { color: var(--accent); }
   <div class="card">
     <label>Người dịch (theo thứ tự trái → phải; mặc định Codex → DeepSeek dự phòng)</label>
     <div class="chips" id="providers"></div>
-    <label style="margin-top:10px">Biên tập chủ biên (mặc định Claude Code → DeepSeek dự phòng)</label>
+    <label style="margin-top:10px">Biên tập chủ biên (mặc định Claude Code → Codex → DeepSeek dự phòng)</label>
     <div class="chips" id="editors"></div>
-    <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức, bước biên tập chuyển sang DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
+    <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức thì <b>Codex</b> hiệu đính, chỉ khi cả hai đều hết mới dùng DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
     <div class="grid" style="margin-top:8px">
-      <div><label for="model">Model (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
+      <div><label for="model">Model cho AI dịch đầu tiên (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
+      <div><label for="modelDeepseek">Model DeepSeek</label><input type="text" id="modelDeepseek" placeholder="để trống = deepseek-chat">
+        <p class="hint">Bản dịch DeepSeek chưa hay? Thử model mạnh hơn mà tài khoản DeepSeek của bạn có (xem trang API của DeepSeek).</p></div>
+      <div><label for="modelCodex">Model Codex</label><input type="text" id="modelCodex" placeholder="để trống = mặc định của Codex"></div>
       <div><label for="effort">Mức suy nghĩ (để trống = theo thể loại)</label><select id="effort">
         <option value="">Mặc định</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
     </div>
@@ -284,7 +287,7 @@ async function api(path, opts = {}) {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---- ghi nhớ lựa chọn --------------------------------------------------
-const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut"];
+const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut"];
 let formReady = false, saveTimer = null;
 function saveForm() {
   if (!formReady) return;  // chưa nạp xong cài đặt cũ thì không ghi đè
@@ -333,7 +336,7 @@ async function refresh(first = false) {
   fillSelect("banDich", f.books.map((b) => [b, b]), saved.banDich, "— chọn —");
   fillSelect("banGoc", f.books.map((b) => [b, b]), saved.banGoc, "— không có —");
   if (first) {
-    for (const k of ["muc", "polish", "model", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    for (const k of ["muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || "discworld.bible.json";
     const chosen = saved.providers || ["codex", "deepseek"];
@@ -341,7 +344,7 @@ async function refresh(first = false) {
       `<label><input type="checkbox" value="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
        <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
     $("providers").innerHTML = chips(chosen);
-    $("editors").innerHTML = chips(saved.editors?.length ? saved.editors : ["claude-code", "deepseek"]);
+    $("editors").innerHTML = chips(saved.editors?.length ? saved.editors : ["claude-code", "codex", "deepseek"]);
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
   if (first && state.claude_path) $("claudePath").value = state.claude_path;
@@ -454,6 +457,7 @@ function collect(action) {
     action, book: $("book").value, genre: $("genre").value, style: $("style").value, muc: $("muc").value, polish: $("polish").value,
     providers: [...document.querySelectorAll("#providers input:checked")].map((i) => i.value),
     editors: [...document.querySelectorAll("#editors input:checked")].map((i) => i.value),
+    models: { deepseek: $("modelDeepseek").value.trim(), codex: $("modelCodex").value.trim() },
     model: $("model").value, effort: $("effort").value, brief: $("brief").value, bible: bibleRel(), glossary: $("glossary").value,
     note: $("note").value, chunks: $("chunks").value, section: $("section").value, fresh: $("fresh").checked,
     wait: $("wait").checked, wait_hours: $("waitHours").value,

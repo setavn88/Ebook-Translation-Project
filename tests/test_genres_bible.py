@@ -89,3 +89,42 @@ def test_check_chunk_detects_untranslated_and_missing():
     assert ok == []
     issues = check_chunk(b, "s", 0, "The Kingslayer and Bob", "Kingslayer và anh ấy")
     assert {(i.entity.source, i.problem) for i in issues} == {("Kingslayer", "untranslated"), ("Bob", "missing")}
+
+
+def test_narrator_pronoun_is_fixed_and_rendered():
+    from booktranslator.bible import NARRATOR
+
+    b = StoryBible()
+    b.add_entity(Entity("Rincewind", "Rincewind", "character"))
+    assert b.add_addressing(Addressing(NARRATOR, "Rincewind", "", "gã"))
+    assert not b.add_addressing(Addressing("người kể", "rincewind", "", "anh ta"))  # đại từ đầu tiên giữ nguyên
+    block = b.passage_block("Rincewind ran.", contains)
+    assert 'Người kể gọi Rincewind là "gã"' in block
+
+
+def test_matching_plurals_case_and_common_noun_terms():
+    from booktranslator.consistency import contains_target
+
+    assert contains("Two trolls ran", "troll") and contains("The Troll roared", "troll")  # tên viết thường: mọi kiểu
+    assert contains("Rincewind's hat", "Rincewind") and not contains("rincewind ran", "Rincewind")  # tên riêng: phân biệt
+    assert not contains("trolley", "troll")
+    assert contains_target("con quỷ đá gầm lên", "Quỷ Đá") and not contains_target("quỷ lùn", "Quỷ Đá")
+
+
+def test_variant_translation_of_place_is_fixable_but_character_is_not():
+    b = StoryBible()
+    b.add_entity(Entity("Discworld", "Đĩa Giới", "place"))
+    b.add_entity(Entity("Bob", "Bốp", "character"))
+    issues = check_chunk(b, "s", 0, "Bob lives on the Discworld.", "Anh ta sống trên Thế giới Đĩa.")
+    by_name = {i.entity.source: i for i in issues}
+    assert by_name["Discworld"].problem == "missing" and by_name["Discworld"].fixable
+    assert by_name["Bob"].problem == "missing" and not by_name["Bob"].fixable
+
+
+def test_longer_name_shadows_shorter_one():
+    b = StoryBible()
+    b.add_entity(Entity("troll", "Quỷ Đá", "creature"))
+    b.add_entity(Entity("sea troll", "Quỷ Nước", "creature"))
+    assert check_chunk(b, "s", 0, "A sea troll surfaced.", "Một con Quỷ Nước trồi lên.") == []
+    issues = check_chunk(b, "s", 0, "A sea troll and a troll.", "Một con Quỷ Nước và một con quỷ lùn.")
+    assert [i.entity.source for i in issues] == ["troll"]

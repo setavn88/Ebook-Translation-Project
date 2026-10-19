@@ -99,8 +99,8 @@ def _add_translate_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--polish", dest="polish", action="store_true", default=None, help="Bật bước biên tập (mặc định theo --muc)")
     p.add_argument("--bien-tap-bang", "--editor-providers", dest="editor_providers",
                    help="AI làm bước biên tập, khác với người dịch nháp (cùng cú pháp --providers). "
-                        "Mặc định: claude-code,deepseek (Claude Code biên tập, DeepSeek dự phòng). "
-                        "Vd: --providers codex,deepseek --bien-tap-bang claude-code,deepseek")
+                        "Mặc định: claude-code,codex,deepseek (Claude Code biên tập; hết hạn mức thì Codex, "
+                        "rồi mới đến DeepSeek). Vd: --providers codex,deepseek --bien-tap-bang claude-code,codex")
     p.add_argument("--no-polish", dest="polish", action="store_false", help="Tắt bước biên tập (rẻ hơn ~một nửa)")
     p.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
 
@@ -227,7 +227,7 @@ def _effort(args, genre_effort: str) -> str:
 
 
 DEFAULT_TRANSLATORS = "codex,deepseek"
-DEFAULT_EDITORS = "claude-code,deepseek"
+DEFAULT_EDITORS = "claude-code,codex,deepseek"  # Claude hết hạn mức → Codex hiệu đính → cuối cùng mới DeepSeek
 
 
 def _chains(args, need_editor: bool = False):

@@ -95,27 +95,19 @@ def _check_and_fix(translator: Translator, doc: Document, translations, fix: boo
     if not fix:
         return issues, 0
 
-    # Chỉ tự sửa lỗi chắc chắn (tên gốc còn sót); lỗi "missing" thường là do dùng đại từ.
+    # Tự sửa lỗi chắc chắn: tên gốc còn sót, hoặc địa danh/loài/chức danh... dịch thành biến thể khác.
+    # Nhân vật mà "không thấy tên" thường chỉ là câu dùng đại từ → chỉ báo cáo.
     to_fix: dict[tuple[str, int], list[Issue]] = {}
     for issue in issues:
-        if issue.problem == "untranslated":
+        if issue.fixable:
             to_fix.setdefault((issue.section_id, issue.chunk_index), []).append(issue)
     sections = {s.id: s for s in doc.sections}
     for n, ((sid, idx), group) in enumerate(to_fix.items(), start=1):
         section = sections[sid]
-        names = "\n".join(f"- {i.entity.source} → {i.entity.target}" for i in group)
-        reminder = (
-            "Bản dịch trước của đoạn này để sót tên gốc chưa dịch. Lần này bắt buộc dùng đúng các bản dịch sau "
-            f"ở mọi chỗ xuất hiện:\n{names}"
-        )
-        context = None
-        if idx > 0:
-            context = (section.chunks[idx - 1][-CONTEXT_TAIL_CHARS:], translations[sid][idx - 1][-CONTEXT_TAIL_CHARS:])
-        translations[sid][idx] = translator.translate_chunk(
-            section.chunks[idx], section.kind, context, sid, doc.order, reminder=reminder
-        )
+        names = list(dict.fromkeys((i.entity.source, i.entity.target) for i in group))
+        translations[sid][idx] = translator.fix_names(section.chunks[idx], translations[sid][idx], section.kind, names)
         if progress:
-            progress("Sửa nhất quán", section.title, n, len(to_fix))
+            progress("Soát tên", section.title, n, len(to_fix))
     return (check_all() if to_fix else issues), len(to_fix)
 
 

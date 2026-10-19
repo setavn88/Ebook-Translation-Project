@@ -146,8 +146,8 @@ def test_translate_document_fixes_untranslated_names(tmp_path):
     bible.add_entity(Entity("Bob", "Bốp", "character"))
 
     def sloppy(system, user):
-        # Lần đầu "quên" dịch tên Bob; khi có <reminder> thì dịch đúng.
-        if "<reminder>" in user or "<draft>" in user:
+        # Lần đầu "quên" dịch tên Bob; bước soát tên sửa lại.
+        if "<translation_to_fix>" in user or "<draft>" in user:
             return default_responder(system, user)
         return reply(translation_reply(fake_translate(source_of(user), {"Alice": "Ali"}).replace("BOB", "Bob")))
 
@@ -158,7 +158,7 @@ def test_translate_document_fixes_untranslated_names(tmp_path):
     assert "Bob" not in text and text.count("Bốp") == 2 and text.count("Ali") == 3
     assert result.fixed_chunks == 2
     assert [i for i in result.issues if i.problem == "untranslated"] == []
-    assert "Đoạn đã tự dịch lại để sửa tên: **2**" in result.report
+    assert "Đoạn đã tự soát và sửa tên: **2**" in result.report
 
 
 def test_translate_document_no_fix_reports_only(tmp_path):
@@ -275,7 +275,7 @@ def test_cli_default_roles_codex_translates_claude_code_edits(monkeypatch):
     monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(spec) or fake_chain()[0])
     llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]), need_editor=True)
     assert seen[0] == [("codex", None), ("deepseek", None)]  # người dịch mặc định
-    assert seen[-1] == "claude-code,deepseek" and editor is not llm  # biên tập mặc định
+    assert seen[-1] == "claude-code,codex,deepseek" and editor is not llm  # biên tập mặc định
     seen.clear()
     cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--bien-tap-bang", "codex"]), need_editor=True)
     assert seen[-1] == "codex"
@@ -285,15 +285,38 @@ def test_cli_editor_chain_only_when_needed(monkeypatch):
     seen = []
     monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append(spec) or fake_chain()[0])
     llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["phan-tich", "x.epub"]))
-    assert editor is llm and "claude-code,deepseek" not in seen  # lập sổ tay / học phong cách / không biên tập
+    assert editor is llm and "claude-code,codex,deepseek" not in seen  # lập sổ tay / học phong cách / không biên tập
 
 
 def test_cli_missing_editor_falls_back_to_translator(monkeypatch, capsys):
     def build(spec, fb, override, wait=0):
-        if spec == "claude-code,deepseek":
+        if spec == "claude-code,codex,deepseek":
             raise ValueError("Không dùng được nhà cung cấp nào: Chưa cài Claude Code; Thiếu DEEPSEEK_API_KEY")
         return fake_chain()[0]
 
     monkeypatch.setattr(cli, "build_chain", build)
     llm, analysis, editor = cli._chains(cli.build_parser().parse_args(["dich", "x.epub"]), need_editor=True)
     assert editor is llm and "Bước biên tập sẽ do người dịch" in capsys.readouterr().err
+
+
+def test_variant_place_names_are_fixed_but_character_pronouns_only_reported(tmp_path):
+    """Bài học từ bản Codex hiệu đính: 'troll' bị dịch lúc 'quỷ lùn' lúc 'quỷ cầu'."""
+    src = tmp_path / "s.md"
+    src.write_text("# Chapter 1\n\nThe Troll roared. Two trolls ran.\n\n# Chapter 2\n\nBob waved at the troll.", encoding="utf-8")
+    bible = StoryBible()
+    bible.add_entity(Entity("troll", "Quỷ Đá", "creature"))
+    bible.add_entity(Entity("Bob", "Bốp", "character"))
+
+    def sloppy(system, user):
+        if "<translation_to_fix>" in user:
+            return default_responder(system, user)
+        src_text = source_of(user)
+        out = src_text.replace("The Troll", "Quỷ lùn").replace("trolls", "quỷ cầu").replace("the troll", "con quỷ cầu")
+        return reply(translation_reply(out.replace("Bob waved", "Anh ta vẫy tay")))
+
+    t, _ = make_translator(sloppy, bible=bible, polish=False)
+    out = tmp_path / "o.md"
+    result = translate_document(t, load_document(src), out)
+    assert result.fixed_chunks == 2  # cả hai chương có 'troll' bị dịch lệch
+    report = result.report
+    assert "Nhân vật không thấy tên (thường do dùng đại từ, nên xem lại): **1**" in report  # Bob → "Anh ta": chỉ báo

@@ -54,7 +54,10 @@ Lưu ý:
 
 Khi gọi Codex, phần mềm cố ý không truyền `OPENAI_API_KEY`, để Codex dùng gói đã đăng nhập.
 
-**Cấu hình mặc định:** Codex dịch bản nháp, Claude Code hiệu đính; DeepSeek nhận tiếp nếu Codex hoặc Claude Code hết hạn mức hay gặp lỗi. DeepSeek cần `DEEPSEEK_API_KEY`. Có thể đổi thứ tự hoặc provider trong giao diện.
+**Cấu hình mặc định:**
+- **Người dịch:** Codex; Codex hết hạn mức hay lỗi thì DeepSeek dịch tiếp.
+- **Biên tập:** Claude Code; Claude hết hạn mức thì **Codex** hiệu đính, chỉ khi cả hai đều hết mới đến DeepSeek. Thứ tự này đặt DeepSeek cuối vì bản DeepSeek "flash" dịch và biên tập kém mượt hơn.
+- DeepSeek cần `DEEPSEEK_API_KEY`. Model DeepSeek và Codex chọn được trong giao diện (bước 2), hoặc bằng `deepseek:<model>` trong `--providers`.
 
 ```bash
 booktranslator dich book.epub -g comic
@@ -63,7 +66,7 @@ booktranslator dich book.epub -g comic
 Lệnh trên tương đương với cấu hình tường minh:
 
 ```bash
-booktranslator dich book.epub -g comic --providers codex,deepseek --bien-tap-bang claude-code,deepseek
+booktranslator dich book.epub -g comic --providers codex,deepseek --bien-tap-bang claude-code,codex,deepseek
 ```
 
 Trong giao diện, hàng **Người dịch** đặt Codex trước DeepSeek; hàng **Biên tập chủ biên** đặt Claude Code trước DeepSeek. DeepSeek được dùng khi provider đứng trước tạm thời không khả dụng hoặc hết hạn mức.
@@ -296,7 +299,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `--providers` | `codex,deepseek` | Nhà cung cấp dịch theo thứ tự ưu tiên |
 | `--model`, `--effort` | theo `--muc` | Ghi đè model dịch / mức suy nghĩ |
 | `--polish` / `--no-polish` | theo `--muc` | Bật/tắt bước biên tập |
-| `--bien-tap-bang SPEC` | `claude-code,deepseek` | AI làm bước biên tập chủ biên theo thứ tự ưu tiên |
+| `--bien-tap-bang SPEC` | `claude-code,codex,deepseek` | AI làm bước biên tập chủ biên theo thứ tự ưu tiên |
 | `--so-tay FILE` | `<kết quả>.bible.json` | File sổ tay truyện |
 | `--glossary FILE` | | Nạp thêm tên `{"nguồn": "đích"}` vào sổ tay |
 | `--yeu-cau "..."` | | Yêu cầu riêng, ưu tiên cao nhất |

@@ -225,3 +225,10 @@ def test_codex_path_setting(server, tmp_path, monkeypatch):
     exe.write_text("")
     status, r = call("/api/codex-path", "POST", {"path": f'"{exe}"'})
     assert status == 200 and r["providers"]["codex"] is True and r["path"] == str(exe)
+
+
+def test_provider_spec_with_models():
+    from booktranslator.webui import provider_spec
+
+    assert provider_spec(["codex", "deepseek"], {"deepseek": "deepseek-reasoner"}) == "codex,deepseek:deepseek-reasoner"
+    assert provider_spec(["deepseek", "bad"], {"deepseek": "x; rm -rf /"}) == "deepseek"  # model lạ bị bỏ qua

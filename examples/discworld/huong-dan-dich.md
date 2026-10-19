@@ -39,6 +39,16 @@
 - Tổ chức, chức danh, biệt danh, đồ vật có nghĩa: Việt hóa ngắn gọn, viết hoa như tên riêng, dùng đúng như sổ tay truyện.
 - "wizard" → phù thủy (nam, ở Đại học); "witch" → phù thủy (nữ, ở thôn quê) — khi cần phân biệt thì "nữ phù thủy".
 
+## Bài học từ bản hiệu đính "The Color of Magic"
+- Tên loài và tên thế giới phải đúng một cách gọi suốt bộ: Discworld → Đĩa Giới, troll → Quỷ Đá, sea troll → Quỷ Nước.
+  Không dùng "Thế giới Đĩa", "quỷ lùn", "quỷ cầu" hay các biến thể khác.
+- Cụm tiếng Anh sát chữ thì đổi thành cách nói Việt có cùng ý và cùng độ hài:
+  "a far-off and second-hand set of dimensions" → "một vũ trụ xa xôi, cũ như món đồ sang tay" (không phải "hệ chiều đã qua sử dụng");
+  "store up the description for later revenge" → "ghi lòng tạc dạ, để dành lúc rảnh tính sổ".
+- Câu mô tả dài nhiều mệnh đề: sắp lại theo trình tự người Việt kể, kết bằng một nhận xét gọn và dí dỏm.
+- Lời thoại cãi cọ ngắn: dùng từ đời thường (vd. "đồ bi quan" thay vì "kẻ chỉ biết đầu hàng").
+- Người kể gọi mỗi nhân vật bằng một đại từ cố định (Rincewind: "gã"; Twoflower: "anh"; kẻ thù: "hắn"), không đổi qua lại trong cùng cảnh.
+
 ## Điều cần tránh
 - Giọng nghiêm trang, văn vẻ cầu kỳ, từ Hán Việt nặng nề.
 - Làm nhẹ đi hoặc làm thô thêm các câu châm chọc, chửi bới so với bản gốc (giữ đúng mức độ).

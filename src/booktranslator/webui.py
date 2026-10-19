@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -33,6 +34,18 @@ EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 TEXT_SUFFIXES = (".md", ".json", ".txt")
 MAX_TEXT_BYTES = 5 * 1024 * 1024
 VALID_PROVIDERS = ("claude-code", "codex", "claude", "deepseek", "openai")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9._/\-]{1,80}$")
+
+
+def provider_spec(names: list, models: dict | None) -> str:
+    """["codex", "deepseek"] + {"deepseek": "deepseek-reasoner"} → "codex,deepseek:deepseek-reasoner"."""
+    out = []
+    for name in names:
+        if name not in VALID_PROVIDERS:
+            continue
+        model = str((models or {}).get(name) or "").strip()
+        out.append(f"{name}:{model}" if model and _MODEL_RE.match(model) else name)
+    return ",".join(out)
 
 
 def _safe_name(name: str) -> str:
@@ -300,9 +313,8 @@ class App:
             outputs.append(self.rel(bible))
         else:
             argv.append(f"--so-tay={bible}")
-            editors = [p for p in opts.get("editors") or [] if p in VALID_PROVIDERS]
-            if editors:
-                argv.append(f"--bien-tap-bang={','.join(editors)}")
+            if editors := provider_spec(opts.get("editors") or [], opts.get("models")):
+                argv.append(f"--bien-tap-bang={editors}")
             polish = opts.get("polish") or "auto"
             if polish == "on":
                 argv.append("--polish")
@@ -327,9 +339,8 @@ class App:
         args = []
         if (preset := opts.get("muc")) and preset in PRESETS:
             args.append(f"--muc={preset}")
-        providers = [p for p in opts.get("providers") or [] if p in VALID_PROVIDERS]
-        if providers:
-            args.append(f"--providers={','.join(providers)}")
+        if providers := provider_spec(opts.get("providers") or [], opts.get("models")):
+            args.append(f"--providers={providers}")
         if model := (opts.get("model") or "").strip():
             args.append(f"--model={model}")
         if (effort := opts.get("effort")) in ("low", "medium", "high", "xhigh", "max"):

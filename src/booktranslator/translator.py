@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from .bible import Addressing, Entity, SectionNotes, StoryBible
+from .bible import NARRATOR, Addressing, Entity, SectionNotes, StoryBible
 from .cache import TranslationCache
 from .chunker import split_html, split_text
 from .consistency import contains
@@ -71,6 +71,8 @@ NATURALNESS_RULES = """Dịch ý, không dịch chữ — tránh "văn dịch", 
 - Lược bớt sở hữu "của anh ấy/của cô ấy/của họ" khi đã rõ ai: "He put his hand in his pocket" → "Anh đút tay vào túi".
 - Không lặp "anh ấy/cô ấy/nó" ở mọi câu: lược chủ ngữ, dùng tên, hoặc cách gọi mang sắc thái (gã, lão, cô nàng,
   thằng bé, bà ta, ông cụ...) đúng với thái độ người kể.
+- Đại từ người kể dùng cho MỖI nhân vật phải cố định: nếu <so_tay> ghi "Người kể gọi X là ..." thì luôn dùng đúng
+  đại từ đó; không đổi qua lại anh ta / hắn / gã / y cho cùng một người, kể cả trong cùng một cảnh.
 - Bỏ khung câu tiếng Anh: "It was... that...", "There was a..." → nói thẳng; "Đó là một ngày..." → "Hôm ấy...".
 - Sắp xếp lại trật tự câu theo tiếng Việt; tách câu dài nhiều mệnh đề, nhưng giữ cú chốt ở cuối nếu nó gây hiệu ứng.
 - Thành ngữ, câu đùa, chơi chữ: dùng thành ngữ, tục ngữ, lối nói dân gian tương đương thay cho nghĩa đen.
@@ -89,7 +91,9 @@ _OUTPUT_RULES = """Định dạng trả lời (bắt buộc):
  "addressing": [{"speaker": "tên gốc", "listener": "tên gốc", "self_term": "xưng", "other_term": "gọi", "context": "hoàn cảnh"}]}
 </bible_updates>
 Trong bible_updates chỉ ghi tên riêng/thuật ngữ MỚI chưa có trong <so_tay>, và cách xưng hô mới xuất hiện hoặc vừa
-thay đổi trong đoạn này (kèm lý do trong context). Không có gì mới thì ghi {"entities": [], "addressing": []}."""
+thay đổi trong đoạn này (kèm lý do trong context). Nhân vật mới chưa có dòng "Người kể gọi X là ..." thì thêm một mục
+addressing với speaker "NGƯỜI KỂ", self_term rỗng, other_term là đại từ người kể dùng cho nhân vật đó.
+Không có gì mới thì ghi {"entities": [], "addressing": []}."""
 
 
 def _is_vietnamese(lang: str) -> bool:
@@ -145,6 +149,9 @@ def build_editor_rules(config: TranslatorConfig, genre: GenreProfile, kind: str,
         "- Đối chiếu từng câu với bản gốc: sửa chỗ hiểu sai, dịch sót, dịch thừa; không thêm hay bớt ý.",
         "- Câu đùa, chơi chữ, ẩn ý phải giữ được tác dụng (buồn cười, gây sợ, gây xúc động) như bản gốc.",
         "- Giọng của từng nhân vật phải phân biệt và ổn định; xưng hô đúng <so_tay> và đúng giai đoạn quan hệ.",
+        "- Thống nhất đại từ người kể dùng cho mỗi nhân vật (theo dòng \"Người kể gọi X là ...\" trong <so_tay>); "
+        "sửa mọi chỗ đổi qua lại anh ta / hắn / gã cho cùng một người.",
+        "- Câu nào nháp dịch tối nghĩa hoặc làm mất ý so với bản gốc thì viết lại cho rõ ý trước, rồi mới trau chuốt.",
         "- GIỮ NGUYÊN mọi tên riêng và thuật ngữ đúng như <so_tay>; không đổi tên dù thấy cách khác hay hơn.",
         f"- {_FORMAT_RULES[kind]}",
         "- Chỗ nào nháp đã tốt thì giữ nguyên; chỉ sửa chỗ thật sự làm văn hay hơn hoặc đúng hơn.",
@@ -291,13 +298,17 @@ class Translator:
                 f"- summary: tóm tắt diễn biến chương bằng {c.target_lang}, 3–6 câu, dùng tên đã dịch.",
                 "- events: sự kiện then chốt ảnh hưởng tới các chương sau (cái chết, bị thương, tiết lộ bí mật, "
                 "đổi tên/danh hiệu, thay đổi quan hệ, quy luật thế giới mới lộ ra). Mỗi sự kiện một câu ngắn.",
-                "- entities: tên riêng và thuật ngữ đặc thù của thế giới truyện (không lấy từ thông dụng). source là đúng "
+                "- entities: tên riêng và thuật ngữ đặc thù của thế giới truyện (không lấy từ thông dụng). PHẢI lấy cả tên "
+                "loài, chủng tộc, sinh vật, chức danh, đơn vị đặc thù dù viết thường (vd. troll, sea troll, dwarf, imp), "
+                "để cả cuốn dùng một cách dịch; source viết thường như trong bản gốc. source là đúng "
                 "chữ trong bản gốc; aliases là các cách gọi khác trong bản gốc; target theo quy tắc đặt tên của phong "
                 "cách và thể loại. Tên đã có trong <known_names> thì dùng lại đúng bản dịch đó, không cần liệt kê lại "
                 "trừ khi có thêm alias.",
                 "- gender: giới tính nếu là nhân vật (nam/nữ/không rõ), để trống nếu không phải.",
                 "- addressing: cách từng cặp nhân vật xưng hô với nhau trong chương (dùng tên gốc cho speaker/listener), "
-                "phù hợp tuổi tác, vai vế, mức thân mật và phong cách dịch."
+                "phù hợp tuổi tác, vai vế, mức thân mật và phong cách dịch. Thêm một mục cho mỗi nhân vật quan trọng với "
+                f"speaker = \"{NARRATOR}\", self_term rỗng, other_term = đại từ ngôi thứ ba người kể dùng cho nhân vật đó "
+                "(anh, gã, lão, cô, nàng, hắn, bà, ông...) theo tuổi tác và thái độ của giọng kể; đại từ này dùng cố định cả truyện."
                 if g.track_addressing
                 else "- addressing: để mảng rỗng.",
                 "",
@@ -490,6 +501,44 @@ class Translator:
             return draft
         self.cache.put(key, match.group(1))
         return match.group(1)
+
+    def fix_names(self, chunk: str, translation: str, kind: str, names: list[tuple[str, str]]) -> str:
+        """Soát tên: chỉ thay các tên dịch sai / biến thể / còn sót tên gốc bằng đúng bản dịch trong sổ tay.
+
+        Rẻ và an toàn hơn dịch lại cả đoạn: câu chữ đã biên tập được giữ nguyên.
+        """
+        listing = "\n".join(f"- {src} → {dst}" for src, dst in names)
+        key = TranslationCache.make_key("fixnames", CACHE_VERSION, self.editor_llm.id, kind, chunk, translation, listing)
+        cached = self.cache.get(key)
+        if cached is not None:
+            return cached
+        system = "\n".join([
+            f"Bạn là biên tập viên soát tên riêng cho bản dịch {self.config.target_lang}.",
+            "Nhiệm vụ DUY NHẤT: sửa bản dịch để mọi tên trong <names> dùng đúng bản dịch bắt buộc ở mọi chỗ xuất hiện "
+            "(kể cả số nhiều, đầu câu, cách gọi tắt): thay các cách dịch khác, biến thể đảo chữ, hoặc tên gốc tiếng Anh "
+            "còn sót bằng đúng bản dịch bắt buộc; viết hoa như trong danh sách.",
+            "Thay TRỌN cả cụm dịch sai, không để thừa chữ nào của cách dịch cũ: vd. bắt buộc \"troll → Quỷ Đá\" thì "
+            "\"quỷ lùn\", \"quỷ cầu\", \"con troll\" đều thành \"Quỷ Đá\" (không phải \"Quỷ Đá lùn\").",
+            "KHÔNG sửa bất cứ thứ gì khác: giữ nguyên câu chữ, giọng văn, dấu câu, xuống dòng. Nếu một tên được thay bằng "
+            "đại từ hợp lý thì để nguyên.",
+            f"- {_FORMAT_RULES[kind]}",
+            "Trả lời duy nhất bằng bản đã sửa đặt trong cặp thẻ <translation></translation>.",
+        ])
+        user = (f"<names>\n{listing}\n</names>\n\n<source>\n{chunk}\n</source>\n\n"
+                f"Soát tên trong bản dịch sau:\n<translation_to_fix>\n{translation}\n</translation_to_fix>")
+        try:
+            result = self._complete(self.editor_llm, system, user, "soát tên", effort="low")
+        except TranslationError as e:
+            log.warning("Bỏ qua bước soát tên cho đoạn này: %s", e)
+            return translation
+        match = _TRANSLATION_RE.search(result.text)
+        fixed = match.group(1) if match else ""
+        # Chỉ được thay tên: độ dài phải gần như không đổi, nếu không thì giữ bản cũ cho an toàn.
+        if not fixed.strip() or abs(len(fixed) - len(translation)) > max(0.15 * len(translation), 40):
+            log.warning("Bản soát tên thay đổi quá nhiều (%s), giữ bản cũ", result.provider)
+            return translation
+        self.cache.put(key, fixed)
+        return fixed
 
     def translate_section(
         self,

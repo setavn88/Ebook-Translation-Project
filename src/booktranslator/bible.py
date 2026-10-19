@@ -32,6 +32,9 @@ class Entity:
         return [self.source, *self.aliases]
 
 
+NARRATOR = "NGƯỜI KỂ"  # speaker đặc biệt: đại từ ngôi thứ ba người kể dùng cho một nhân vật (gã, lão, anh ta...)
+
+
 @dataclass
 class Addressing:
     """Cách nhân vật `speaker` xưng mình (`self_term`) và gọi `listener` (`other_term`)."""
@@ -98,6 +101,11 @@ class StoryBible:
         if not (item.speaker and item.listener and (item.self_term or item.other_term)):
             return False
         with self._lock:
+            if _norm(item.speaker) == _norm(NARRATOR):
+                # Người kể gọi một nhân vật bằng MỘT đại từ suốt truyện: cái được ghi trước giữ nguyên.
+                if any(_norm(a.speaker) == _norm(NARRATOR) and _norm(a.listener) == _norm(item.listener)
+                       for a in self.addressing):
+                    return False
             for a in self.addressing:
                 if (_norm(a.speaker), _norm(a.listener), a.self_term, a.other_term) == (
                     _norm(item.speaker), _norm(item.listener), item.self_term, item.other_term
@@ -211,7 +219,10 @@ class StoryBible:
                 lines.append("\n[xưng hô] (người nói → người nghe: xưng / gọi — hoàn cảnh)")
                 for a in addressing:
                     ctx = f" — {a.context}" if a.context else ""
-                    lines.append(f"- {a.speaker} → {a.listener}: xưng \"{a.self_term}\" / gọi \"{a.other_term}\"{ctx}")
+                    if _norm(a.speaker) == _norm(NARRATOR):
+                        lines.append(f"- Người kể gọi {a.listener} là \"{a.other_term}\"{ctx}")
+                    else:
+                        lines.append(f"- {a.speaker} → {a.listener}: xưng \"{a.self_term}\" / gọi \"{a.other_term}\"{ctx}")
             return "\n".join(lines)
 
     # ---- lưu / đọc -----------------------------------------------------
