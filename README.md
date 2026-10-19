@@ -35,10 +35,10 @@ Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và 
 
 1. Cài Claude Code: https://claude.com/claude-code
 2. Mở Terminal, gõ `claude` và đăng nhập bằng tài khoản Claude của bạn. Chỉ cần làm một lần.
-3. Trong giao diện, tick **Claude Code**. Nếu dùng dòng lệnh, thêm `--providers claude-code`.
+3. Claude Code là biên tập chủ biên mặc định trong giao diện. Nếu muốn dùng cho dịch thay Codex, đặt provider đó trong danh sách dịch.
 
 Lưu ý:
-- **Hạn mức:** việc dịch tính vào hạn mức của gói (theo khung vài giờ và theo tuần), không phải tiền API. Dịch cả cuốn có biên tập khá tốn hạn mức: gói Pro dễ chạm giới hạn giữa chừng, gói Max thoải mái hơn. Chạm giới hạn thì phần mềm dừng và lưu tiến độ; hoặc thêm DeepSeek làm dự phòng (`--providers claude-code,deepseek`).
+- **Hạn mức:** Claude Code dùng hạn mức gói Claude cho bước biên tập, không phải tiền API. Nếu Claude Code hết hạn mức, bước biên tập chuyển sang DeepSeek khi đã cấu hình API key.
 - **Sách dài, hết hạn mức giữa chừng:** mỗi đoạn dịch xong được lưu ngay. Mặc định, khi hết hạn mức, phần mềm **tự chờ** đến giờ hạn mức hồi lại (hoặc cứ 15 phút thử lại một lần), rồi dịch tiếp, tối đa 12 giờ. Đổi bằng `--cho-han-muc 48`, tắt bằng `--khong-cho`; trên giao diện là ô "hết hạn mức thì tự chờ". Tắt máy hay bấm Dừng giữa chừng cũng không sao: lần sau chạy lại là tiếp tục đúng đoạn đang dở. Khi để chờ qua đêm, nhớ tắt chế độ ngủ (sleep) của máy.
 - **Không bị tính tiền API:** khi gọi Claude Code, phần mềm cố ý **không** truyền `ANTHROPIC_API_KEY`, để Claude Code luôn dùng gói đã đăng nhập.
 - **Chỉ dùng cá nhân:** đây là dùng tài khoản của chính bạn để dịch sách tự đọc. Đừng dùng cách này để chạy dịch vụ cho người khác.
@@ -54,21 +54,19 @@ Lưu ý:
 
 Khi gọi Codex, phần mềm cố ý không truyền `OPENAI_API_KEY`, để Codex dùng gói đã đăng nhập.
 
-**Thứ tự dự phòng:** đánh dấu nhiều AI; thứ tự là từ trái sang phải. Ví dụ Claude Code → Codex → DeepSeek: hết hạn mức gói Claude thì chuyển sang gói ChatGPT, hết nữa mới dùng DeepSeek (trả tiền nhưng rẻ).
+**Cấu hình mặc định:** Codex dịch bản nháp, Claude Code hiệu đính; DeepSeek nhận tiếp nếu Codex hoặc Claude Code hết hạn mức hay gặp lỗi. DeepSeek cần `DEEPSEEK_API_KEY`. Có thể đổi thứ tự hoặc provider trong giao diện.
 
 ```bash
-booktranslator dich book.epub -g comic --providers claude-code,codex,deepseek
+booktranslator dich book.epub -g comic
 ```
 
-**Chia vai:** một AI dịch nháp, một AI khác biên tập.
+Lệnh trên tương đương với cấu hình tường minh:
 
 ```bash
-booktranslator dich book.epub -g comic --providers codex,claude-code --bien-tap-bang claude-code,codex
+booktranslator dich book.epub -g comic --providers codex,deepseek --bien-tap-bang claude-code,deepseek
 ```
 
-Trên giao diện là hai hàng "Người dịch nháp" và "Người biên tập". Lợi ích:
-- **Hạn mức tăng gấp đôi:** việc dịch tốn hạn mức gói ChatGPT, việc biên tập tốn hạn mức gói Claude.
-- **Soát lỗi tốt hơn:** một AI khác đọc lại thường bắt được lỗi AI kia bỏ sót.
+Trong giao diện, hàng **Người dịch** đặt Codex trước DeepSeek; hàng **Biên tập chủ biên** đặt Claude Code trước DeepSeek. DeepSeek được dùng khi provider đứng trước tạm thời không khả dụng hoặc hết hạn mức.
 
 Nên đánh dấu cả hai AI ở mỗi vai, để vai này hết hạn mức thì dùng AI kia làm dự phòng. Trước khi dịch cả cuốn, hãy so thử bằng **Dịch thử**: bản nháp và bản biên tập hiện cạnh nhau, ghi rõ AI nào làm.
 
@@ -261,7 +259,10 @@ Tự viết hồ sơ phong cách cũng được: xem [`examples/phong-cach-mau.j
 ### Nhiều nhà cung cấp API (`--providers`)
 
 ```bash
-# Claude trước; Claude hết quota, rate limit hay lỗi thì tự chuyển sang DeepSeek, rồi ChatGPT
+# Cấu hình mặc định: Codex dịch trước, DeepSeek dự phòng
+booktranslator dich book.epub -g comic
+
+# Tự chọn chuỗi khác: Claude API trước, rồi DeepSeek, rồi ChatGPT API
 booktranslator dich book.epub -g comic --providers claude,deepseek,openai
 
 # Chỉ dùng DeepSeek (rẻ nhất), hoặc chỉ định model
@@ -290,10 +291,10 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `-g, --the-loai` / `--the-loai-file` | `general` | Thể loại |
 | `-p, --phong-cach` / `--phong-cach-file` | `natural` | Phong cách dịch |
 | `--muc` | `can-bang` | Mức chất lượng/chi phí |
-| `--providers` | `claude` | Nhà cung cấp API theo thứ tự ưu tiên |
+| `--providers` | `codex,deepseek` | Nhà cung cấp dịch theo thứ tự ưu tiên |
 | `--model`, `--effort` | theo `--muc` | Ghi đè model dịch / mức suy nghĩ |
 | `--polish` / `--no-polish` | theo `--muc` | Bật/tắt bước biên tập |
-| `--bien-tap-bang SPEC` | cùng người dịch | AI làm bước biên tập, vd. `claude-code,codex` |
+| `--bien-tap-bang SPEC` | `claude-code,deepseek` | AI làm bước biên tập chủ biên theo thứ tự ưu tiên |
 | `--so-tay FILE` | `<kết quả>.bible.json` | File sổ tay truyện |
 | `--glossary FILE` | | Nạp thêm tên `{"nguồn": "đích"}` vào sổ tay |
 | `--yeu-cau "..."` | | Yêu cầu riêng, ưu tiên cao nhất |

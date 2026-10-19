@@ -122,11 +122,11 @@ a { color: var(--accent); }
       <option value="auto">Theo mức chất lượng</option><option value="on">Luôn bật</option><option value="off">Tắt (rẻ hơn ~½)</option></select></div>
   </div>
   <div class="card">
-    <label>Người dịch nháp (theo thứ tự trái → phải; hết hạn mức thì tự chuyển sang cái kế tiếp)</label>
+    <label>Người dịch (theo thứ tự trái → phải; mặc định Codex → DeepSeek dự phòng)</label>
     <div class="chips" id="providers"></div>
-    <label style="margin-top:10px">Người biên tập (bước nhuận sắc) — bỏ trống = cùng người dịch</label>
+    <label style="margin-top:10px">Biên tập chủ biên (mặc định Claude Code → DeepSeek dự phòng)</label>
     <div class="chips" id="editors"></div>
-    <p class="hint"><b>Claude Code</b> và <b>Codex</b> dùng gói Claude / ChatGPT bạn đang đăng nhập — không tốn tiền API. Gợi ý: Codex dịch nháp, Claude Code biên tập → chia đều hạn mức cho hai gói, và một AI khác soát lại sẽ bắt được lỗi AI kia bỏ sót. Các mục "API" cần API key (bước ⚙).</p>
+    <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức, bước biên tập chuyển sang DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
     <div class="grid" style="margin-top:8px">
       <div><label for="model">Model (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
       <div><label for="effort">Mức suy nghĩ (để trống = theo thể loại)</label><select id="effort">
@@ -330,12 +330,12 @@ async function refresh(first = false) {
     for (const k of ["muc", "polish", "model", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut"]) if (saved[k] !== undefined) $(k).value = saved[k];
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || "discworld.bible.json";
-    const chosen = saved.providers || [state.providers["claude-code"] ? "claude-code" : "claude"];
+    const chosen = saved.providers || ["codex", "deepseek"];
     const chips = (picked) => PROVIDERS.map(([k, label]) =>
       `<label><input type="checkbox" value="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
        <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
     $("providers").innerHTML = chips(chosen);
-    $("editors").innerHTML = chips(saved.editors || []);
+    $("editors").innerHTML = chips(saved.editors?.length ? saved.editors : ["claude-code", "deepseek"]);
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
   if (first && state.claude_path) $("claudePath").value = state.claude_path;

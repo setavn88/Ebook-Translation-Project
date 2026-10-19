@@ -54,9 +54,10 @@ def _load_glossary(path: Path | None) -> dict[str, str]:
 
 def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument(
-        "--providers", default="claude",
-        help="Nhà cung cấp API theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
-             "Vd: claude-code (gói Claude Pro/Max), codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
+        "--providers", default="codex,deepseek",
+        help="Nhà cung cấp theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
+             "Mặc định: codex,deepseek (Codex dịch, DeepSeek dự phòng). Vd: claude-code (gói Claude Pro/Max), "
+             "codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
              "deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
     )
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
@@ -98,7 +99,8 @@ def _add_translate_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--polish", dest="polish", action="store_true", default=None, help="Bật bước biên tập (mặc định theo --muc)")
     p.add_argument("--bien-tap-bang", "--editor-providers", dest="editor_providers",
                    help="AI làm bước biên tập, khác với người dịch nháp (cùng cú pháp --providers). "
-                        "Vd: --providers codex --bien-tap-bang claude-code: Codex dịch, Claude biên tập")
+                        "Mặc định: claude-code,deepseek (Claude Code biên tập, DeepSeek dự phòng). "
+                        "Vd: --providers codex,deepseek --bien-tap-bang claude-code,deepseek")
     p.add_argument("--no-polish", dest="polish", action="store_false", help="Tắt bước biên tập (rẻ hơn ~một nửa)")
     p.add_argument("--fresh", action="store_true", help="Bỏ qua bản dịch đã lưu, dịch lại từ đầu")
 
@@ -238,9 +240,8 @@ def _chains(args):
     )
     if analysis.id == llm.id:
         analysis = llm
-    editor = llm
-    if editor_spec := getattr(args, "editor_providers", None):
-        editor = build_chain(editor_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
+    editor_spec = getattr(args, "editor_providers", None) or "claude-code,deepseek"
+    editor = build_chain(editor_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
     return llm, analysis, editor
 
 
