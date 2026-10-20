@@ -144,8 +144,9 @@ a { color: var(--accent); }
     <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức thì <b>Codex</b> hiệu đính, chỉ khi cả hai đều hết mới dùng DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
     <div class="grid" style="margin-top:8px">
       <div><label for="model">Model cho AI dịch đầu tiên (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
-      <div><label for="modelDeepseek">Model DeepSeek</label><input type="text" id="modelDeepseek" placeholder="để trống = deepseek-chat">
-        <p class="hint">Bản dịch DeepSeek chưa hay? Thử model mạnh hơn mà tài khoản DeepSeek của bạn có (xem trang API của DeepSeek).</p></div>
+      <div><label for="modelDeepseek">Model DeepSeek</label><input type="text" id="modelDeepseek" list="deepseekModels" placeholder="để trống = deepseek-v4-pro">
+        <datalist id="deepseekModels"><option value="deepseek-v4-pro">Pro — dịch hay hơn</option><option value="deepseek-flash">Flash — rẻ, nhanh</option></datalist>
+        <p class="hint">Mặc định dùng bản <b>Pro</b>. Muốn rẻ hơn thì chọn <code>deepseek-flash</code>. Nếu DeepSeek đổi tên model, bấm "Kiểm tra DeepSeek" ở tab ⚙ để xem tên đúng.</p></div>
       <div><label for="modelCodex">Model Codex</label><input type="text" id="modelCodex" placeholder="để trống = mặc định của Codex"></div>
       <div><label for="effort">Mức suy nghĩ (để trống = theo thể loại)</label><select id="effort">
         <option value="">Mặc định</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
@@ -333,7 +334,8 @@ a { color: var(--accent); }
   </div>
   <div class="card grid">
     <div><label for="kClaude">Claude API key (ANTHROPIC_API_KEY)</label><input type="password" id="kClaude" placeholder="sk-ant-..."></div>
-    <div><label for="kDeepseek">DeepSeek API key</label><input type="password" id="kDeepseek" placeholder="sk-..."></div>
+    <div><label for="kDeepseek">DeepSeek API key</label><input type="password" id="kDeepseek" placeholder="sk-...">
+      <div class="row" style="margin-top:6px"><button class="btn" id="testDeepseek">Kiểm tra DeepSeek</button><span id="deepseekMsg" class="hint"></span></div></div>
     <div><label for="kOpenai">OpenAI (ChatGPT) API key</label><input type="password" id="kOpenai" placeholder="sk-..."></div>
   </div>
   <button class="btn primary" id="saveKeys">Dùng các key này</button>
@@ -851,6 +853,16 @@ $("testClaude").onclick = async () => {
     if (r.path) $("claudePath").value = r.path;
     await refresh(); updateProviderBadges(state.providers);
   } catch (e) { $("claudeMsg").textContent = "✗ " + e.message; }
+  btn.disabled = false;
+};
+$("testDeepseek").onclick = async () => {
+  const btn = $("testDeepseek"); btn.disabled = true; $("deepseekMsg").textContent = "Đang kiểm tra...";
+  try {
+    if ($("kDeepseek").value.trim()) await api("/api/keys", { method: "POST", body: JSON.stringify({ deepseek: $("kDeepseek").value }) });
+    const r = await api("/api/test-deepseek", { method: "POST" });
+    $("deepseekMsg").textContent = (r.ok ? "✓ " : "✗ ") + r.message;
+    if (r.models.length) $("deepseekModels").innerHTML = r.models.map((m) => `<option value="${esc(m)}"></option>`).join("");
+  } catch (e) { $("deepseekMsg").textContent = "✗ " + e.message; }
   btn.disabled = false;
 };
 $("testCodex").onclick = async () => {

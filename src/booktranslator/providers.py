@@ -32,13 +32,13 @@ DEFAULT_MODELS = {
     "claude": "claude-opus-5-5",
     "claude-code": "claude-opus-5-5",
     "codex": "",  # để trống = model mặc định trong cấu hình Codex của người dùng
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-v4-pro",  # bản Pro dịch hay hơn; rẻ hơn thì dùng deepseek-flash
     "openai": "gpt-5",
 }
 API_KEY_ENV = {"claude": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY"}
 _BASE_URLS = {"deepseek": "https://api.deepseek.com", "openai": None}
-# Giới hạn output của từng nhà cung cấp (token). DeepSeek chat tối đa 8K.
-_MAX_OUTPUT = {"claude": 64000, "deepseek": 8192, "openai": 32000}
+# Giới hạn output mỗi lần gọi (token) — đủ cho một đoạn dịch hay một lần phân tích chương.
+_MAX_OUTPUT = {"claude": 64000, "deepseek": 32000, "openai": 32000}
 
 
 class ProviderUnavailable(RuntimeError):
@@ -496,6 +496,9 @@ class OpenAICompatProvider(Provider):
         except openai.APIStatusError as e:
             if e.status_code == 402:  # DeepSeek: hết số dư
                 raise ProviderUnavailable(f"{self.name}: hết số dư tài khoản") from e
+            if e.status_code in (400, 404) and "model" in str(e).lower():
+                # Sai tên model (vd. nhà cung cấp đổi tên): chuyển AI dự phòng thay vì dừng cả cuốn.
+                raise ProviderUnavailable(f"{self.name}: không dùng được model {self.model!r} ({e.status_code})") from e
             raise
         u = resp.usage
         if u is not None:
@@ -507,6 +510,24 @@ class OpenAICompatProvider(Provider):
         if choice.finish_reason == "content_filter":
             return Completion(text, "refusal", "content_filter", self.id)
         return Completion(text, "max_tokens" if choice.finish_reason == "length" else "end", provider=self.id)
+
+
+def list_models(name: str, api_key: str | None = None) -> list[str]:
+    """Các model tài khoản dùng được (DeepSeek / ChatGPT API) — để chọn đúng tên khi nhà cung cấp đổi tên model."""
+    try:
+        import openai
+    except ImportError as e:
+        raise ProviderUnavailable("Cần cài thêm: pip install openai") from e
+    key = api_key or os.environ.get(API_KEY_ENV[name])
+    if not key:
+        raise ProviderUnavailable(f"Chưa có API key {name}")
+    client = openai.OpenAI(api_key=key, base_url=_BASE_URLS[name], max_retries=1, timeout=30)
+    try:
+        return sorted(m.id for m in client.models.list())
+    except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
+        raise ProviderUnavailable(f"{name}: API key không hợp lệ") from e
+    except openai.APIError as e:
+        raise ProviderUnavailable(f"{name}: {type(e).__name__}: {e}") from e
 
 
 # ---- chuỗi dự phòng --------------------------------------------------

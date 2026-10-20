@@ -306,3 +306,15 @@ def test_postedit_chapter_overview_and_status(server):
     assert status == 200 and res["applied"] == 1
     assert call("/api/postedit/chapters?book=b.vi.md")[1]["chapters"][0]["status"] == "approved"
     assert out.read_text(encoding="utf-8") == "# Một\n\nCâu mượt.\n\n# Hai\n\nCâu hai.\n"
+
+
+def test_deepseek_check_without_key(server, monkeypatch):
+    app, call, _ = server
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    status, r = call("/api/test-deepseek", "POST")
+    assert status == 200 and r["ok"] is False and r["models"] == []
+    import booktranslator.webui as w
+
+    monkeypatch.setattr(w, "list_models", lambda name, key=None: ["deepseek-flash", "deepseek-v4-pro"])
+    r = call("/api/test-deepseek", "POST")[1]
+    assert r["ok"] and r["models"] == ["deepseek-flash", "deepseek-v4-pro"]

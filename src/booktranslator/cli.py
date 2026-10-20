@@ -77,7 +77,7 @@ def _add_api_opts(p: argparse.ArgumentParser) -> None:
         help="Nhà cung cấp theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
              "Mặc định: codex,deepseek (Codex dịch, DeepSeek dự phòng). Vd: claude-code (gói Claude Pro/Max), "
              "codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
-             "deepseek:deepseek-chat,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
+             "deepseek:deepseek-flash,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
     )
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
     p.add_argument("--effort", choices=_EFFORTS, help="Mức suy nghĩ của mô hình; mặc định theo thể loại và --muc")

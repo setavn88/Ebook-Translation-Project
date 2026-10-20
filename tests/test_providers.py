@@ -111,10 +111,16 @@ def test_deepseek_request_shape():
     p = OpenAICompatProvider("deepseek", client=client)
     result = p.complete("SYS", "USER", json_schema={"type": "object"})
     kw = calls[0]
-    assert kw["model"] == "deepseek-chat" and kw["max_tokens"] == 8192
+    assert kw["model"] == "deepseek-v4-pro" and kw["max_tokens"] == 32000
     assert kw["response_format"] == {"type": "json_object"}
     assert kw["messages"][0]["role"] == "system" and "schema" in kw["messages"][0]["content"]
     assert result.text == "xin chào" and p.usage.cached_input_tokens == 80
+
+
+def test_unknown_model_falls_back_instead_of_stopping():
+    client, _ = openai_client(error=_status_error(openai.BadRequestError, 400, "Model Not Exist"))
+    with pytest.raises(ProviderUnavailable, match="deepseek-cu"):
+        OpenAICompatProvider("deepseek", "deepseek-cu", client=client).complete("s", "u")
 
 
 def test_openai_uses_reasoning_effort_and_completion_tokens():

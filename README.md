@@ -290,7 +290,7 @@ booktranslator hoc-tu-ban-sua --ban-tho raw.epub --ban-sua codex.epub \
 | `can-bang` *(mặc định)* | `claude-opus-5-5` | `claude-sonnet-5-5` | có | theo thể loại |
 | `cao-cap` | `claude-opus-5-5` | `claude-opus-5-5` | có | tối thiểu `high` |
 
-Cột model chỉ áp dụng cho Claude Code / Claude API. Codex dùng model mặc định trong cấu hình Codex của bạn, DeepSeek dùng `deepseek-chat`; muốn đổi thì ghi `tên:model` trong `--providers`. Riêng "Biên tập" (bật/tắt) và "Effort" áp dụng cho mọi AI.
+Cột model chỉ áp dụng cho Claude Code / Claude API. Codex dùng model mặc định trong cấu hình Codex của bạn, DeepSeek dùng `deepseek-v4-pro` (bản Pro; muốn rẻ hơn thì `deepseek-flash`); muốn đổi thì ghi `tên:model` trong `--providers`. Riêng "Biên tập" (bật/tắt) và "Effort" áp dụng cho mọi AI.
 
 - `--model` ghi đè model dịch, ví dụ `--model claude-fable-5-1`: model mạnh nhất, giá khoảng 2,5 lần Opus. Nên so hai bản bằng `dich-thu` trước.
 - `--effort`, `--polish`, `--no-polish` ghi đè từng phần của mức đã chọn.
@@ -314,7 +314,7 @@ booktranslator dich book.epub -g comic --providers claude,deepseek,openai
 
 # Chỉ dùng DeepSeek (rẻ nhất), hoặc chỉ định model
 booktranslator dich book.epub -g comic --providers deepseek
-booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,openai:gpt-5
+booktranslator dich book.epub -g comic --providers deepseek:deepseek-flash,openai:gpt-5
 ```
 
 | Tên | Biến môi trường | Model mặc định |
@@ -322,7 +322,7 @@ booktranslator dich book.epub -g comic --providers deepseek:deepseek-reasoner,op
 | `claude-code` | không cần (đăng nhập Claude Code) | theo `--muc` |
 | `codex` | không cần (`codex login` bằng tài khoản ChatGPT) | model mặc định của Codex |
 | `claude` | `ANTHROPIC_API_KEY` | theo `--muc` |
-| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` (hoặc `deepseek-flash`) |
 | `openai` (hay `chatgpt`) | `OPENAI_API_KEY` | `gpt-5` |
 
 - Nhà cung cấp chưa có key thì bị bỏ qua.

@@ -27,7 +27,7 @@ from .cli import PRESETS
 from .document import SUPPORTED, default_output_path, load_document
 from .genres import BUILTIN as GENRES
 from .postedit import LEVELS, apply_edits_file, chapter_overview, default_output, edits_path, existing_edits
-from .providers import API_KEY_ENV, CLAUDE_PATH_ENV, CODEX_PATH_ENV, check_claude_code, check_codex, find_claude, find_codex
+from .providers import API_KEY_ENV, ProviderUnavailable, CLAUDE_PATH_ENV, CODEX_PATH_ENV, check_claude_code, check_codex, find_claude, find_codex, list_models
 from .styles import BUILTIN as STYLES
 
 HTML_FILE = Path(__file__).with_name("webui.html")
@@ -39,7 +39,7 @@ _MODEL_RE = re.compile(r"^[A-Za-z0-9._/\-]{1,80}$")
 
 
 def provider_spec(names: list, models: dict | None) -> str:
-    """["codex", "deepseek"] + {"deepseek": "deepseek-reasoner"} → "codex,deepseek:deepseek-reasoner"."""
+    """["codex", "deepseek"] + {"deepseek": "deepseek-flash"} → "codex,deepseek:deepseek-flash"."""
     out = []
     for name in names:
         if name not in VALID_PROVIDERS:
@@ -284,6 +284,13 @@ class App:
     def test_codex(self) -> dict:
         ok, message = check_codex()
         return {"ok": ok, "message": message, "path": find_codex() or ""}
+
+    def test_deepseek(self) -> dict:
+        try:
+            models = list_models("deepseek", self.keys.get("deepseek"))
+        except ProviderUnavailable as e:
+            return {"ok": False, "message": str(e), "models": []}
+        return {"ok": True, "message": f"Kết nối được. Model dùng được: {', '.join(models)}", "models": models}
 
     def state(self) -> dict:
         return {
@@ -576,6 +583,8 @@ def make_handler(app: App):
                 return self._json({"providers": app.providers_status(), "path": app._claude_exe() or ""})
             if method == "POST" and path == "/api/test-claude":
                 return self._json(app.test_claude())
+            if method == "POST" and path == "/api/test-deepseek":
+                return self._json(app.test_deepseek())
             if method == "POST" and path == "/api/test-codex":
                 return self._json(app.test_codex())
             if method == "POST" and path == "/api/postedit/guide":
