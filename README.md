@@ -38,7 +38,7 @@ Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và 
 3. Claude Code là biên tập chủ biên mặc định trong giao diện. Nếu muốn dùng cho dịch thay Codex, đặt provider đó trong danh sách dịch.
 
 Lưu ý:
-- **Hạn mức:** Claude Code dùng hạn mức gói Claude cho bước biên tập, không phải tiền API. Nếu Claude Code hết hạn mức, bước biên tập chuyển sang DeepSeek khi đã cấu hình API key.
+- **Hạn mức:** Claude Code dùng hạn mức gói Claude cho bước biên tập, không phải tiền API. Nếu Claude Code hết hạn mức, bước biên tập lần lượt chuyển sang Codex rồi DeepSeek (nếu cả hai đã được cấu hình).
 - **Sách dài, hết hạn mức giữa chừng:** mỗi đoạn dịch xong được lưu ngay. Mặc định, khi hết hạn mức, phần mềm **tự chờ** đến giờ hạn mức hồi lại (hoặc cứ 15 phút thử lại một lần), rồi dịch tiếp, tối đa 12 giờ. Đổi bằng `--cho-han-muc 48`, tắt bằng `--khong-cho`; trên giao diện là ô "hết hạn mức thì tự chờ". Tắt máy hay bấm Dừng giữa chừng cũng không sao: lần sau chạy lại là tiếp tục đúng đoạn đang dở. Khi để chờ qua đêm, nhớ tắt chế độ ngủ (sleep) của máy.
 - **Không bị tính tiền API:** khi gọi Claude Code, phần mềm cố ý **không** truyền `ANTHROPIC_API_KEY`, để Claude Code luôn dùng gói đã đăng nhập.
 - **Chỉ dùng cá nhân:** đây là dùng tài khoản của chính bạn để dịch sách tự đọc. Đừng dùng cách này để chạy dịch vụ cho người khác.
@@ -57,7 +57,7 @@ Khi gọi Codex, phần mềm cố ý không truyền `OPENAI_API_KEY`, để Co
 **Cấu hình mặc định:**
 - **Người dịch:** Codex; Codex hết hạn mức hay lỗi thì DeepSeek dịch tiếp.
 - **Biên tập:** Claude Code; Claude hết hạn mức thì **Codex** hiệu đính, chỉ khi cả hai đều hết mới đến DeepSeek. Thứ tự này đặt DeepSeek cuối vì bản DeepSeek "flash" dịch và biên tập kém mượt hơn.
-- DeepSeek cần `DEEPSEEK_API_KEY`. Model DeepSeek và Codex chọn được trong giao diện (bước 2), hoặc bằng `deepseek:<model>` trong `--providers`.
+  - DeepSeek cần `DEEPSEEK_API_KEY`. Ở giao diện, chọn **Pro** để ưu tiên chất lượng hoặc **Flash** để tiết kiệm chi phí; lựa chọn áp dụng cho mọi bước dùng DeepSeek. Codex dùng model đang chọn trong Codex CLI; có thể đổi trong cấu hình Codex hoặc ô **Model Codex** ở giao diện.
 
 ```bash
 booktranslator dich book.epub -g comic
@@ -69,7 +69,7 @@ Lệnh trên tương đương với cấu hình tường minh:
 booktranslator dich book.epub -g comic --providers codex,deepseek --bien-tap-bang claude-code,codex,deepseek
 ```
 
-Trong giao diện, hàng **Người dịch** đặt Codex trước DeepSeek; hàng **Biên tập chủ biên** đặt Claude Code trước DeepSeek. DeepSeek được dùng khi provider đứng trước tạm thời không khả dụng hoặc hết hạn mức.
+Trong giao diện, hàng **Người dịch** đặt Codex trước DeepSeek; hàng **Biên tập chủ biên** đặt Claude Code trước Codex rồi DeepSeek. Nhà cung cấp kế tiếp được dùng khi provider đứng trước tạm thời không khả dụng hoặc hết hạn mức. Cấu hình cũ dạng Claude Code → DeepSeek được tự bổ sung Codex ở giữa khi mở giao diện lần đầu sau khi cập nhật.
 
 Nên đánh dấu cả hai AI ở mỗi vai, để vai này hết hạn mức thì dùng AI kia làm dự phòng. Trước khi dịch cả cuốn, hãy so thử bằng **Dịch thử**: bản nháp và bản biên tập hiện cạnh nhau, ghi rõ AI nào làm.
 

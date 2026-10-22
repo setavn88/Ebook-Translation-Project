@@ -465,7 +465,7 @@ class App:
             job = Job(secrets.token_hex(4), action, argv, outputs, opts, self.jobs_dir)
             self.jobs[job.id] = job
             job.save()
-        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8:backslashreplace", PYTHONUTF8="1")
         # Tiến trình con phải import được booktranslator kể cả khi chưa "pip install" (chạy từ mã nguồn).
         package_root = str(Path(__file__).resolve().parents[1])
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH", "")) if p)

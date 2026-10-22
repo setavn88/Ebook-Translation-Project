@@ -144,9 +144,11 @@ a { color: var(--accent); }
     <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức thì <b>Codex</b> hiệu đính, chỉ khi cả hai đều hết mới dùng DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
     <div class="grid" style="margin-top:8px">
       <div><label for="model">Model cho AI dịch đầu tiên (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
-      <div><label for="modelDeepseek">Model DeepSeek</label><input type="text" id="modelDeepseek" list="deepseekModels" placeholder="để trống = deepseek-v4-pro">
-        <datalist id="deepseekModels"><option value="deepseek-v4-pro">Pro — dịch hay hơn</option><option value="deepseek-flash">Flash — rẻ, nhanh</option></datalist>
-        <p class="hint">Mặc định dùng bản <b>Pro</b>. Muốn rẻ hơn thì chọn <code>deepseek-flash</code>. Nếu DeepSeek đổi tên model, bấm "Kiểm tra DeepSeek" ở tab ⚙ để xem tên đúng.</p></div>
+      <div><label for="modelDeepseek">Model DeepSeek</label><select id="modelDeepseek">
+        <option value="deepseek-v4-pro">Pro — chất lượng cao hơn</option>
+        <option value="deepseek-flash">Flash — nhanh, tiết kiệm hơn</option>
+      </select>
+        <p class="hint">Chọn Pro cho chất lượng ưu tiên hoặc Flash để tiết kiệm chi phí. Lựa chọn này áp dụng mỗi khi DeepSeek được dùng để dịch hoặc hiệu đính.</p></div>
       <div><label for="modelCodex">Model Codex</label><input type="text" id="modelCodex" placeholder="để trống = mặc định của Codex"></div>
       <div><label for="effort">Mức suy nghĩ (để trống = theo thể loại)</label><select id="effort">
         <option value="">Mặc định</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></div>
@@ -365,11 +367,13 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const PERSIST = ["book", "genre", "style", "muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "brief", "bible", "glossary", "note", "chunks", "section", "waitHours", "banDich", "banGoc", "styleName", "styleOut",
   "peTranslated", "peSource", "peGuide", "peLevel", "peChapters", "peNote", "leTho", "leSua", "leGoc"];
 let formReady = false, saveTimer = null;
+let editorFallbackMigrated = false;
 function saveForm() {
   if (!formReady) return;  // chưa nạp xong cài đặt cũ thì không ghi đè
   const v = Object.fromEntries(PERSIST.map((k) => [k, $(k).value]));
   v.providers = [...document.querySelectorAll("#providers input:checked")].map((i) => i.value);
   v.editors = [...document.querySelectorAll("#editors input:checked")].map((i) => i.value);
+  v.editorRoutingVersion = 1;
   v.wait = $("wait").checked;
   try { localStorage.setItem("bt-form", JSON.stringify(v)); } catch (e) {}
   // Lưu cả vào thư mục làm việc: tắt phần mềm / đổi trình duyệt vẫn giữ nguyên lựa chọn.
@@ -425,6 +429,7 @@ async function refresh(first = false) {
   updateLevelHint();
   if (first) {
     for (const k of ["muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut", "peChapters", "peNote"]) if (saved[k] !== undefined) $(k).value = saved[k];
+    if (!["deepseek-v4-pro", "deepseek-flash"].includes($("modelDeepseek").value)) $("modelDeepseek").value = "deepseek-v4-pro";
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || "discworld.bible.json";
     const chosen = saved.providers || ["codex", "deepseek"];
@@ -432,14 +437,20 @@ async function refresh(first = false) {
       `<label><input type="checkbox" value="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
        <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
     $("providers").innerHTML = chips(chosen);
-    $("editors").innerHTML = chips(saved.editors?.length ? saved.editors : ["claude-code", "codex", "deepseek"]);
+    const chosenEditors = saved.editors?.length ? [...saved.editors] : ["claude-code", "codex", "deepseek"];
+    // Migrate the older Claude -> DeepSeek editor setting so Codex is tried between them.
+    if (!saved.editorRoutingVersion && chosenEditors.includes("claude-code") && chosenEditors.includes("deepseek") && !chosenEditors.includes("codex")) {
+      chosenEditors.push("codex");
+      editorFallbackMigrated = true;
+    }
+    $("editors").innerHTML = chips(chosenEditors);
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
   if (first && state.claude_path) $("claudePath").value = state.claude_path;
   if (first && state.codex_path) $("codexPath").value = state.codex_path;
   updateGenreHint();
   renderProviders();
-  if (first) { formReady = true; restoreLastJob(); }
+  if (first) { formReady = true; if (editorFallbackMigrated) saveForm(); restoreLastJob(); }
   $("results").innerHTML = f.results.length ? f.results.map(fileLink).join("") : '<li class="hint">Chưa có.</li>';
 }
 function fileLink(r) {
@@ -629,7 +640,10 @@ function updateResume(j) {
   $("resumeText").innerHTML = `Lần trước <b>${esc(ACTION_LABEL[j.action])}</b> «${esc(bookName(j))}» chưa xong${where}. Phần đã làm được giữ nguyên, bấm để làm tiếp từ chỗ dừng.`;
   $("resumeBtn").onclick = async () => {
     try {
-      const job = await api("/api/jobs", { method: "POST", body: JSON.stringify({ ...j.opts, fresh: false }) });
+      // A resumed job keeps its saved translation options, but uses the current
+      // editor chain so old Claude -> DeepSeek jobs pick up the Codex fallback.
+      const editors = [...document.querySelectorAll("#editors input:checked")].map((i) => i.value);
+      const job = await api("/api/jobs", { method: "POST", body: JSON.stringify({ ...j.opts, ...(editors.length ? { editors } : {}), fresh: false }) });
       currentJob = job; logNext = 0; $("log").textContent = ""; $("outputs").innerHTML = ""; poll();
     } catch (e) { toast(e.message); }
   };

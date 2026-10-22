@@ -502,9 +502,9 @@ def _run(args, progress) -> int:
     translator = Translator(config, llm, genre, style, bible, cache, analysis_llm, editor_llm)
     _err(
         f"Thể loại: {genre.name} · Phong cách: {style.name}\n"
-        f"Dịch: {llm.active.id} (effort {config.effort}) · "
-        f"Biên tập: {editor_llm.active.id if config.polish else 'không'} · "
-        f"Phân tích: {analysis_llm.active.id} · {len(doc.sections)} chương"
+        f"Dịch: {' -> '.join(p.id for p in llm.providers)} (effort {config.effort}) · "
+        f"Biên tập: {' -> '.join(p.id for p in editor_llm.providers) if config.polish else 'không'} · "
+        f"Phân tích: {' -> '.join(p.id for p in analysis_llm.providers)} · {len(doc.sections)} chương"
     )
 
     if args.cmd == "preview":
@@ -553,6 +553,15 @@ def _run(args, progress) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A Windows console or embedded Python may expose ASCII-only streams. Keep
+    # provider fallback warnings from aborting a translation on Unicode text.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
     if args.cmd == "ui":
