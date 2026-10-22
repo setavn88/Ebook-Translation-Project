@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -47,6 +48,17 @@ def provider_spec(names: list, models: dict | None) -> str:
         model = str((models or {}).get(name) or "").strip()
         out.append(f"{name}:{model}" if model and _MODEL_RE.match(model) else name)
     return ",".join(out)
+
+
+PROJECT_FILE = "project.json"
+PROJECT_BIBLE = "so-tay.bible.json"
+
+
+def _slug(name: str) -> str:
+    """"Discworld Series" → "discworld-series" (tên thư mục dự án)."""
+    text = unicodedata.normalize("NFD", name.replace("đ", "d").replace("Đ", "D"))
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn").lower()
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:60] or "du-an"
 
 
 def _safe_name(name: str) -> str:
@@ -137,17 +149,141 @@ class App:
 
     # ---- cài đặt giao diện (lưu trên ổ đĩa, không phụ thuộc trình duyệt) ------
 
-    def load_settings(self) -> dict:
+    def load_settings(self, project: str = "") -> dict:
+        if project:
+            return dict(self._project_info(project).get("settings") or {})
         try:
             data = json.loads(self.settings_path.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}
 
-    def save_settings(self, data: dict) -> None:
+    def save_settings(self, data: dict, project: str = "") -> None:
         if not isinstance(data, dict):
             raise ValueError("Cài đặt không hợp lệ")
+        if project:
+            info = self._project_info(project)
+            info["settings"] = data
+            self._write_project(project, info)
+            return
         self.settings_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ---- dự án: mỗi bộ sách / series một thư mục riêng ---------------------
+    # <thư mục làm việc>/<dự án>/project.json + sách, sổ tay, hướng dẫn, kết quả của dự án đó.
+    # Dự án "" = thư mục chung (cách dùng cũ, trước khi có dự án).
+
+    def project_dir(self, project: str = "") -> Path:
+        if not project:
+            return self.workspace
+        path = self.resolve(project)
+        if path == self.workspace or not (path / PROJECT_FILE).is_file():
+            raise FileNotFoundError(f"Không có dự án: {project}")
+        return path
+
+    def _project_info(self, project: str) -> dict:
+        try:
+            data = json.loads((self.project_dir(project) / PROJECT_FILE).read_text(encoding="utf-8"))
+        except ValueError as e:
+            raise ValueError(f"{project}/{PROJECT_FILE} bị hỏng") from e
+        return data if isinstance(data, dict) else {}
+
+    def _write_project(self, project: str, info: dict) -> None:
+        path = self.project_dir(project) / PROJECT_FILE
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _project_dirs(self) -> list[Path]:
+        return sorted(p.parent for p in self.workspace.glob(f"*/{PROJECT_FILE}") if not p.parent.name.startswith("."))
+
+    def projects(self) -> list[dict]:
+        out = []
+        for d in self._project_dirs():
+            rel = self.rel(d)
+            try:
+                info = self._project_info(rel)
+            except ValueError:
+                info = {}
+            out.append({"id": rel, "name": info.get("name") or d.name, "description": info.get("description", ""),
+                        "books": len(self.list_files(rel)["books"])})
+        return out
+
+    def create_project(self, name: str, description: str = "", genre: str = "", starter: bool = False,
+                       move_common: bool = False) -> dict:
+        name = " ".join(str(name).split())
+        if not name:
+            raise ValueError("Chưa đặt tên dự án")
+        slug = _slug(name)
+        folder = self.workspace / slug
+        n = 2
+        while folder.exists():
+            folder, n = self.workspace / f"{slug}-{n}", n + 1
+        folder.mkdir()
+        settings = {"bible": PROJECT_BIBLE}
+        if genre in GENRES:
+            settings["genre"] = genre
+        info = {"name": name, "description": str(description), "created": time.strftime("%Y-%m-%d %H:%M"), "settings": settings}
+        (folder / PROJECT_FILE).write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+        pid = self.rel(folder)
+        moved = self.move_common_into(pid) if move_common else []
+        if starter:
+            self.install_starter(pid)
+        return {"id": pid, "moved": moved}
+
+    def move_common_into(self, project: str) -> list[str]:
+        """Chuyển sách/sổ tay/kết quả đang ở thư mục chung vào dự án (kèm tiến độ đã lưu), giữ nguyên tên file.
+        Cài đặt chung được chép sang dự án, đường dẫn trỏ vào vị trí mới."""
+        dest = self.project_dir(project)
+        if dest == self.workspace:
+            raise ValueError("Chọn một dự án để chuyển file vào")
+        project_dirs = set(self._project_dirs())
+        moves: dict[str, str] = {}
+
+        def move(src: Path, target: Path) -> None:
+            if target.exists():
+                return  # không ghi đè file đã có trong dự án
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(target))
+            moves[self.rel_any(src)] = self.rel(target)
+
+        for item in sorted(self.workspace.iterdir()):
+            if item.name.startswith(".") or item in project_dirs or item == dest:
+                if item.name == ".bt_cache":  # bản dịch đã lưu (tính theo tên file kết quả) đi theo sách
+                    for f in item.iterdir():
+                        move(f, dest / ".bt_cache" / f.name)
+                continue
+            if item.is_file():
+                move(item, dest / item.name)
+            elif item.name == "discworld" and not (item / PROJECT_FILE).exists():
+                for f in item.iterdir():  # bộ khởi đầu cũ: đưa thẳng vào dự án
+                    if f.is_file():
+                        move(f, dest / f.name)
+                if not any(item.iterdir()):
+                    item.rmdir()
+        # Chép cài đặt chung sang dự án, sửa đường dẫn theo chỗ mới.
+        common = self.load_settings()
+        if common:
+            fixed = {}
+            for key, value in common.items():
+                if isinstance(value, str):
+                    prefix = "file:" if value.startswith("file:") else ""
+                    value = prefix + moves.get(value[len(prefix):], value[len(prefix):])
+                fixed[key] = value
+            # Sổ tay đang dùng (nếu đã chuyển vào) thành sổ tay của dự án.
+            bible = Path(str(fixed.get("bible") or "")).name
+            fixed["bible"] = bible if bible and (dest / bible).exists() else PROJECT_BIBLE
+            info = self._project_info(project)
+            info["settings"] = {**(info.get("settings") or {}), **fixed}
+            self._write_project(project, info)
+        return sorted(moves.values())
+
+    def _count_common(self) -> int:
+        """Số file sách/sổ tay/hướng dẫn còn nằm ở thư mục chung (để gợi ý chuyển vào dự án)."""
+        files = self.list_files("")
+        return len(set(files["books"] + files["translations"] + files["briefs"] + files["bibles"] + files["jsons"]))
+
+    def rel_any(self, path: Path) -> str:
+        return path.relative_to(self.workspace).as_posix()
 
     def progress(self, job: Job) -> dict | None:
         """Tiến độ cả cuốn (file <kết quả>.progress.json do tiến trình dịch ghi ra)."""
@@ -176,17 +312,22 @@ class App:
     def rel(self, path: Path) -> str:
         return path.resolve().relative_to(self.workspace).as_posix()
 
-    def list_files(self) -> dict:
+    def list_files(self, project: str = "") -> dict:
+        base = self.project_dir(project)
+        others = [d for d in self._project_dirs() if d != base]
         files = sorted(
-            p for p in self.workspace.rglob("*")
-            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(self.workspace).parts)
-            and not p.name.endswith(".progress.json")
+            p for p in base.rglob("*")
+            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(base).parts)
+            and not p.name.endswith(".progress.json") and p.name != PROJECT_FILE
+            and not any(p.is_relative_to(d) for d in others)  # thư mục chung: không lẫn file của các dự án
         )
         rels = [self.rel(p) for p in files]
         reports = (".preview.md", ".consistency.md")
         is_result = lambda r: ".vi." in r or ".hieu-dinh." in r or r.endswith(reports)
         return {
-            "books": [r for r in rels if r.lower().endswith(SUPPORTED) and not is_result(r)],
+            # File hướng dẫn (huong-dan*.md) không phải sách.
+            "books": [r for r in rels if r.lower().endswith(SUPPORTED) and not is_result(r)
+                      and not (r.endswith(".md") and Path(r).name.startswith("huong-dan"))],
             "translations": [r for r in rels if r.lower().endswith(SUPPORTED) and is_result(r) and not r.endswith(reports)],
             "briefs": [r for r in rels if r.endswith(".md") and not r.endswith(reports)],
             "bibles": [r for r in rels if r.endswith(".bible.json")],
@@ -195,12 +336,12 @@ class App:
             "results": [r for r in rels if is_result(r)],
         }
 
-    def install_starter(self) -> list[str]:
-        """Chép bộ khởi đầu Discworld (hướng dẫn dịch + tên riêng) vào thư mục làm việc."""
+    def install_starter(self, project: str = "") -> list[str]:
+        """Chép bộ khởi đầu Discworld (hướng dẫn dịch + tên riêng) vào dự án (hoặc thư mục chung/discworld)."""
         src = EXAMPLES_DIR / "discworld"
         if not src.is_dir():
             raise FileNotFoundError("Không tìm thấy thư mục examples/discworld (hãy cài từ mã nguồn git clone)")
-        dest = self.workspace / "discworld"
+        dest = self.project_dir(project) if project else self.workspace / "discworld"
         dest.mkdir(exist_ok=True)
         copied = []
         for f in src.iterdir():
@@ -210,9 +351,9 @@ class App:
             copied.append(self.rel(target))
         return copied
 
-    def install_edit_guide(self) -> str:
-        """Tạo file hướng dẫn hiệu đính mặc định trong thư mục làm việc (không ghi đè file đã có)."""
-        target = self.workspace / "huong-dan-hieu-dinh.md"
+    def install_edit_guide(self, project: str = "") -> str:
+        """Tạo file hướng dẫn hiệu đính mặc định trong dự án (không ghi đè file đã có)."""
+        target = self.project_dir(project) / "huong-dan-hieu-dinh.md"
         if not target.exists():
             src = EXAMPLES_DIR / "huong-dan-hieu-dinh.md"
             if src.is_file():
@@ -292,10 +433,15 @@ class App:
             return {"ok": False, "message": str(e), "models": []}
         return {"ok": True, "message": f"Kết nối được. Model dùng được: {', '.join(models)}", "models": models}
 
-    def state(self) -> dict:
+    def state(self, project: str = "") -> dict:
+        if project:
+            self.project_dir(project)  # báo lỗi nếu dự án không còn
         return {
             "workspace": str(self.workspace),
-            "files": self.list_files(),
+            "project": project,
+            "projects": self.projects(),
+            "common_files": self._count_common(),
+            "files": self.list_files(project),
             "genres": [{"key": g.key, "name": g.name, "description": g.description, "effort": g.effort} for g in GENRES.values()],
             "styles": [{"key": s.key, "name": s.name, "description": s.description} for s in STYLES.values()],
             "presets": list(PRESETS),
@@ -303,7 +449,7 @@ class App:
             "providers": self.providers_status(),
             "jobs": [j.summary() | {"progress": self.progress(j)}
                      for j in sorted(self.jobs.values(), key=lambda j: j.started, reverse=True)],
-            "settings": self.load_settings(),
+            "settings": self.load_settings(project),
             "starter_available": (EXAMPLES_DIR / "discworld").is_dir(),
             "claude_path": self._claude_exe() or "",
             "codex_path": find_codex() or "",
@@ -319,11 +465,13 @@ class App:
             value = (opts.get(key) or "").strip()
             return self.existing(value) if value else None
 
+        base = self.project_dir(str(opts.get("project") or ""))  # file mới (sổ tay, hướng dẫn...) tạo trong dự án
+
         if action == "learn":
             ban_dich = file_opt("ban_dich")
             if not ban_dich:
                 raise ValueError("Chưa chọn bản dịch tham chiếu")
-            out = self.resolve(_safe_name(opts.get("style_output") or "phong-cach.json"))
+            out = base / _safe_name(opts.get("style_output") or "phong-cach.json")
             if out.suffix != ".json":
                 out = out.with_suffix(".json")
             argv = ["hoc-phong-cach", ban_dich, f"--output={out}", f"--ten={opts.get('style_name') or out.stem}"]
@@ -336,11 +484,11 @@ class App:
             rel = _safe_name(opts.get("bible") or f"{default_stem}.bible.json")
             if not rel.endswith(".bible.json"):
                 rel = rel.removesuffix(".json") + ".bible.json"
-            return self.resolve(rel)
+            return base / rel
 
         def guide_path() -> Path:
-            rel = (opts.get("pe_guide") or "").strip() or "huong-dan-hieu-dinh.md"
-            path = self.resolve(rel)
+            rel = (opts.get("pe_guide") or "").strip()
+            path = self.resolve(rel) if rel else base / "huong-dan-hieu-dinh.md"
             if path.suffix != ".md":
                 raise ValueError("Hướng dẫn hiệu đính phải là file .md")
             return path
@@ -557,7 +705,13 @@ def make_handler(app: App):
         def _api(self, method: str, path: str, query: dict) -> None:
             q = lambda k: (query.get(k) or [""])[0]
             if method == "GET" and path == "/api/state":
-                return self._json(app.state())
+                return self._json(app.state(q("project")))
+            if method == "POST" and path == "/api/projects":
+                data = json.loads(self._body() or b"{}")
+                return self._json(app.create_project(data.get("name", ""), data.get("description", ""), data.get("genre", ""),
+                                                     bool(data.get("starter")), bool(data.get("move_common"))))
+            if method == "POST" and path == "/api/projects/move-common":
+                return self._json({"moved": app.move_common_into(q("project"))})
             if method == "POST" and path == "/api/keys":
                 data = json.loads(self._body() or b"{}")
                 for name in API_KEY_ENV:
@@ -566,9 +720,9 @@ def make_handler(app: App):
                 return self._json({"providers": app.providers_status()})
             if path == "/api/settings":
                 if method == "PUT":
-                    app.save_settings(json.loads(self._body() or b"{}"))
+                    app.save_settings(json.loads(self._body() or b"{}"), q("project"))
                     return self._json({"saved": True})
-                return self._json(app.load_settings())
+                return self._json(app.load_settings(q("project")))
             if method == "POST" and path == "/api/codex-path":
                 value = str(json.loads(self._body() or b"{}").get("path", "")).strip().strip('"')
                 if value and not os.path.isfile(value):
@@ -588,17 +742,16 @@ def make_handler(app: App):
             if method == "POST" and path == "/api/test-codex":
                 return self._json(app.test_codex())
             if method == "POST" and path == "/api/postedit/guide":
-                return self._json({"path": app.install_edit_guide()})
+                return self._json({"path": app.install_edit_guide(q("project"))})
             if method == "POST" and path == "/api/postedit/apply":
                 data = json.loads(self._body() or b"{}")
                 return self._json(app.apply_edits(str(data.get("path", "")), data.get("decisions") or {}, data.get("chapters")))
             if method == "GET" and path == "/api/postedit/chapters":
                 return self._json(app.postedit_chapters(q("book")))
             if method == "POST" and path == "/api/starter":
-                return self._json({"files": app.install_starter()})
+                return self._json({"files": app.install_starter(q("project"))})
             if method == "POST" and path == "/api/upload":
-                name = _safe_name(q("name"))
-                target = app.resolve(name)
+                target = app.project_dir(q("project")) / _safe_name(q("name"))
                 target.write_bytes(self._body())
                 return self._json({"path": app.rel(target)})
             if path == "/api/file":

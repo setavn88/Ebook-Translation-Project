@@ -18,6 +18,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 sys
 header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
 header h1 { font-size: 18px; margin: 0; }
 header .ws { color: var(--muted); font-size: 13px; }
+header .proj { display: inline-flex; gap: 8px; align-items: center; font-weight: 600; }
+header .proj select { padding: 5px 8px; }
 .layout { display: grid; grid-template-columns: 210px 1fr; min-height: calc(100vh - 56px); }
 nav { border-right: 1px solid var(--line); padding: 12px 8px; background: var(--panel); }
 nav button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 9px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
@@ -87,7 +89,9 @@ a { color: var(--accent); }
 <body>
 <header>
   <h1>📖 BookTranslator</h1>
-  <span class="ws">Thư mục làm việc: <code id="ws"></code></span>
+  <span class="proj">Dự án: <select id="project" style="width:auto;min-width:200px"></select>
+    <button class="btn" id="newProjectBtn" title="Mỗi bộ sách / series một dự án: sổ tay, hướng dẫn, sách và cài đặt riêng">＋ Dự án mới</button></span>
+  <span class="ws">Thư mục: <code id="ws"></code></span>
 </header>
 <div class="layout">
 <nav id="nav">
@@ -104,8 +108,24 @@ a { color: var(--accent); }
 
 <!-- 1. Sách -->
 <section id="tab-book" class="active">
+  <div class="card" id="projectCard">
+    <div class="row"><h3 style="margin:0;flex:1" id="projectTitle">Dự án</h3>
+      <button class="btn" id="moveCommonBtn" style="display:none">⇢ Chuyển file ở thư mục chung vào dự án này</button></div>
+    <p class="hint" id="projectInfo" style="margin:6px 0 0"></p>
+    <div id="newProjectForm" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <div class="grid">
+        <div><label for="npName">Tên dự án</label><input type="text" id="npName" placeholder="vd. Discworld Series, Harry Potter, Tam Thể..."></div>
+        <div><label for="npGenre">Thể loại</label><select id="npGenre"></select></div>
+        <div><label for="npDesc">Ghi chú (tùy chọn)</label><input type="text" id="npDesc" placeholder="vd. 41 cuốn, dịch theo thứ tự xuất bản"></div>
+      </div>
+      <div class="chips" style="margin-top:8px">
+        <label><input type="checkbox" id="npStarter"> chép bộ khởi đầu Discworld (hướng dẫn dịch + tên riêng)</label>
+        <label id="npMoveWrap"><input type="checkbox" id="npMove"> chuyển sách, sổ tay, hướng dẫn đang ở thư mục chung vào dự án này</label></div>
+      <div class="row"><button class="btn primary" id="npCreate">Tạo dự án</button><button class="btn" id="npCancel">Hủy</button></div>
+    </div>
+  </div>
   <h2>Chọn sách cần dịch</h2>
-  <p class="lead">Kéo thả file EPUB / TXT / Markdown vào đây. File được lưu trong thư mục làm việc.</p>
+  <p class="lead">Kéo thả file EPUB / TXT / Markdown vào đây. File được lưu trong thư mục của dự án đang chọn.</p>
   <div class="card">
     <div class="drop" id="drop">Kéo thả file sách vào đây, hoặc bấm để chọn file<input type="file" id="fileInput" hidden multiple accept=".epub,.txt,.md,.markdown,.json"></div>
   </div>
@@ -116,7 +136,7 @@ a { color: var(--accent); }
   </div>
   <div class="card" id="starterCard">
     <h3>Bộ khởi đầu Discworld</h3>
-    <p class="hint">Chép file hướng dẫn dịch Discworld và bảng tên riêng đề xuất vào thư mục làm việc, rồi tự chọn sẵn ở bước 2.</p>
+    <p class="hint">Chép file hướng dẫn dịch Discworld và bảng tên riêng đề xuất vào dự án đang chọn, rồi tự chọn sẵn ở bước 2.</p>
     <button class="btn" id="starterBtn">Cài bộ khởi đầu Discworld</button>
   </div>
 </section>
@@ -156,8 +176,8 @@ a { color: var(--accent); }
   </div>
   <div class="card grid">
     <div><label for="brief">File hướng dẫn dịch (.md)</label><select id="brief"></select><p class="hint">Sửa nội dung ở bước 3.</p></div>
-    <div><label for="bible">Sổ tay tên riêng</label><input type="text" id="bible" placeholder="discworld.bible.json">
-      <p class="hint">Dùng chung một sổ tay cho cả bộ truyện để tên thống nhất.</p></div>
+    <div><label for="bible">Sổ tay tên riêng</label><input type="text" id="bible" placeholder="so-tay.bible.json">
+      <p class="hint">Mỗi dự án một sổ tay, dùng chung cho mọi cuốn trong dự án để tên thống nhất cả bộ.</p></div>
     <div><label for="glossary">Bảng tên nạp thêm (.json, tùy chọn)</label><select id="glossary"></select></div>
   </div>
   <div class="card"><label for="note">Yêu cầu riêng (tùy chọn, ưu tiên cao nhất)</label>
@@ -353,6 +373,9 @@ const $ = (id) => document.getElementById(id);
 const PROVIDERS = [["claude-code", "Claude Code (gói Claude)"], ["codex", "Codex (gói ChatGPT)"], ["claude", "Claude API"], ["deepseek", "DeepSeek API"], ["openai", "ChatGPT API"]];
 const ENTITY_TYPES = ["character", "place", "organization", "title", "creature", "artifact", "magic", "term"];
 let state = null, bibleData = null, currentJob = null, logNext = 0;
+let PROJECT = "";  // thư mục dự án đang chọn ("" = thư mục chung)
+try { PROJECT = localStorage.getItem("bt-project") || ""; } catch (e) {}
+const pq = (sep = "?") => PROJECT ? `${sep}project=${encodeURIComponent(PROJECT)}` : "";
 
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3500); }
 async function api(path, opts = {}) {
@@ -375,15 +398,16 @@ function saveForm() {
   v.editors = [...document.querySelectorAll("#editors input:checked")].map((i) => i.value);
   v.editorRoutingVersion = 1;
   v.wait = $("wait").checked;
-  try { localStorage.setItem("bt-form", JSON.stringify(v)); } catch (e) {}
-  // Lưu cả vào thư mục làm việc: tắt phần mềm / đổi trình duyệt vẫn giữ nguyên lựa chọn.
+  if (!PROJECT) try { localStorage.setItem("bt-form", JSON.stringify(v)); } catch (e) {}
+  // Lưu vào dự án (project.json) / thư mục làm việc: tắt phần mềm hay đổi trình duyệt vẫn giữ nguyên lựa chọn.
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => api("/api/settings", { method: "PUT", body: JSON.stringify(v) }).catch(() => {}), 400);
+  const url = "/api/settings" + pq();
+  saveTimer = setTimeout(() => api(url, { method: "PUT", body: JSON.stringify(v) }).catch(() => {}), 400);
 }
 function loadForm() {
   let local = {};
   try { local = JSON.parse(localStorage.getItem("bt-form") || "{}"); } catch (e) {}
-  return Object.keys(state.settings || {}).length ? state.settings : local;
+  return Object.keys(state.settings || {}).length || PROJECT ? state.settings || {} : local;
 }
 
 // ---- tabs ----------------------------------------------------------------
@@ -397,18 +421,23 @@ $("nav").addEventListener("click", (e) => {
   if (b.dataset.tab === "postedit") { $("leBible").textContent = bibleRel(); loadChapters(); }
 });
 
+// Trong dự án, bỏ tiền tố thư mục dự án cho dễ đọc: "discworld-series/abc.epub" → "abc.epub".
+function shortName(label) { const pre = PROJECT + "/"; return PROJECT && String(label).startsWith(pre) ? label.slice(pre.length) : label; }
 function fillSelect(sel, items, value, empty) {
   const el = $(sel), cur = value ?? el.value;
   el.innerHTML = (empty ? `<option value="">${esc(empty)}</option>` : "") +
-    items.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
+    items.map(([v, label]) => `<option value="${esc(v)}">${esc(shortName(label))}</option>`).join("");
   if ([...el.options].some((o) => o.value === cur)) el.value = cur;
 }
 
+let booted = false;
 async function refresh(first = false) {
-  state = await api("/api/state");
+  try { state = await api("/api/state" + pq()); }
+  catch (e) { if (!PROJECT) throw e; PROJECT = ""; state = await api("/api/state"); }  // dự án đã bị xóa/đổi tên
   const saved = first ? loadForm() : {};
   const f = state.files;
-  $("ws").textContent = state.workspace;
+  $("ws").textContent = state.workspace + (PROJECT ? " / " + PROJECT : "");
+  renderProjects();
   fillSelect("book", f.books.map((b) => [b, b]), saved.book, f.books.length ? null : "— chưa có sách, hãy tải lên —");
   fillSelect("genre", state.genres.map((g) => [g.key, g.name]), saved.genre ?? (first ? "comic" : undefined));
   fillSelect("style", [...state.styles.map((s) => [s.key, s.name]), ...f.jsons.map((j) => ["file:" + j, "📄 " + j])], saved.style ?? (first ? "lylan" : undefined));
@@ -421,7 +450,7 @@ async function refresh(first = false) {
   const allBooks = [...f.translations.filter((b) => !edited.includes(b)), ...f.books, ...edited].map((b) => [b, b]);
   fillSelect("peTranslated", allBooks, saved.peTranslated, allBooks.length ? null : "— chưa có bản dịch —");
   fillSelect("peSource", f.books.map((b) => [b, b]), saved.peSource, "— không có —");
-  fillSelect("peGuide", f.briefs.map((b) => [b, b]), saved.peGuide ?? (f.briefs.includes("huong-dan-hieu-dinh.md") ? "huong-dan-hieu-dinh.md" : ""), "— không dùng —");
+  fillSelect("peGuide", f.briefs.map((b) => [b, b]), saved.peGuide ?? (f.briefs.find((b) => b.endsWith("huong-dan-hieu-dinh.md")) || ""), "— không dùng —");
   fillSelect("peLevel", state.levels.map((l) => [l.key, l.name]), saved.peLevel ?? (first ? "vua" : undefined));
   fillSelect("leTho", allBooks, saved.leTho, "— chọn —");
   fillSelect("leSua", allBooks, saved.leSua, "— chọn —");
@@ -429,9 +458,12 @@ async function refresh(first = false) {
   updateLevelHint();
   if (first) {
     for (const k of ["muc", "polish", "model", "modelDeepseek", "modelCodex", "effort", "note", "chunks", "section", "waitHours", "styleName", "styleOut", "peChapters", "peNote"]) if (saved[k] !== undefined) $(k).value = saved[k];
-    if (!["deepseek-v4-pro", "deepseek-flash"].includes($("modelDeepseek").value)) $("modelDeepseek").value = "deepseek-v4-pro";
+    if (saved.modelDeepseek && ![...$("modelDeepseek").options].some((o) => o.value === saved.modelDeepseek))
+      $("modelDeepseek").add(new Option(saved.modelDeepseek, saved.modelDeepseek));  // model đã thêm từ "Kiểm tra DeepSeek"
+    if (saved.modelDeepseek) $("modelDeepseek").value = saved.modelDeepseek;
+    if (!$("modelDeepseek").value) $("modelDeepseek").value = "deepseek-v4-pro";
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
-    $("bible").value = saved.bible || "discworld.bible.json";
+    $("bible").value = saved.bible || (PROJECT ? "so-tay.bible.json" : "discworld.bible.json");
     const chosen = saved.providers || ["codex", "deepseek"];
     const chips = (picked) => PROVIDERS.map(([k, label]) =>
       `<label><input type="checkbox" value="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
@@ -450,7 +482,7 @@ async function refresh(first = false) {
   if (first && state.codex_path) $("codexPath").value = state.codex_path;
   updateGenreHint();
   renderProviders();
-  if (first) { formReady = true; if (editorFallbackMigrated) saveForm(); restoreLastJob(); }
+  if (first) { formReady = true; if (editorFallbackMigrated) saveForm(); if (!booted) restoreLastJob(); booted = true; }
   $("results").innerHTML = f.results.length ? f.results.map(fileLink).join("") : '<li class="hint">Chưa có.</li>';
 }
 function fileLink(r) {
@@ -476,7 +508,7 @@ document.addEventListener("input", saveForm);
 // ---- tải file lên ----------------------------------------------------------
 async function upload(files) {
   for (const file of files) {
-    const r = await api("/api/upload?name=" + encodeURIComponent(file.name), { method: "POST", body: file });
+    const r = await api("/api/upload?name=" + encodeURIComponent(file.name) + pq("&"), { method: "POST", body: file });
     toast("Đã tải lên: " + r.path);
     if (/\.(epub|txt|md|markdown)$/i.test(r.path)) { await refresh(); $("book").value = r.path; saveForm(); }
   }
@@ -491,7 +523,7 @@ drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); upload
 
 $("starterBtn").onclick = async () => {
   try {
-    const r = await api("/api/starter", { method: "POST" });
+    const r = await api("/api/starter" + pq(), { method: "POST" });
     await refresh();
     const brief = r.files.find((x) => x.endsWith(".md")), names = r.files.find((x) => x.endsWith(".json"));
     if (brief) $("brief").value = brief;
@@ -522,7 +554,12 @@ $("newBriefBtn").onclick = async () => {
 };
 
 // ---- sổ tay -------------------------------------------------------------------
-function bibleRel() { let b = $("bible").value.trim() || "discworld.bible.json"; if (!b.endsWith(".bible.json")) b = b.replace(/\.json$/, "") + ".bible.json"; return b; }
+function bibleRel() {
+  // Sổ tay nằm trong thư mục dự án: ô nhập chỉ ghi tên file.
+  let b = $("bible").value.trim().split(/[\\/]/).pop() || (PROJECT ? "so-tay.bible.json" : "discworld.bible.json");
+  if (!b.endsWith(".bible.json")) b = b.replace(/\.json$/, "") + ".bible.json";
+  return (PROJECT ? PROJECT + "/" : "") + b;
+}
 async function loadBible() {
   const rel = bibleRel(); $("bibleName").textContent = rel;
   const r = await api("/api/file?path=" + encodeURIComponent(rel));
@@ -560,7 +597,7 @@ $("saveBible").onclick = async () => {
 // ---- chạy tác vụ ----------------------------------------------------------------
 function collect(action) {
   return {
-    action, book: $("book").value, genre: $("genre").value, style: $("style").value, muc: $("muc").value, polish: $("polish").value,
+    action, project: PROJECT, book: $("book").value, genre: $("genre").value, style: $("style").value, muc: $("muc").value, polish: $("polish").value,
     providers: [...document.querySelectorAll("#providers input:checked")].map((i) => i.value),
     editors: [...document.querySelectorAll("#editors input:checked")].map((i) => i.value),
     models: { deepseek: $("modelDeepseek").value.trim(), codex: $("modelCodex").value.trim() },
@@ -816,7 +853,7 @@ async function openReview(rel) {
   } catch (e) { toast(e.message); }
 }
 $("peGuideNew").onclick = async () => {
-  try { const r = await api("/api/postedit/guide", { method: "POST" }); await refresh(); $("peGuide").value = r.path; saveForm(); toast("Đã tạo " + r.path + " — bấm Sửa để thêm yêu cầu của bạn."); }
+  try { const r = await api("/api/postedit/guide" + pq(), { method: "POST" }); await refresh(); $("peGuide").value = r.path; saveForm(); toast("Đã tạo " + r.path + " — bấm Sửa để thêm yêu cầu của bạn."); }
   catch (e) { toast(e.message); }
 };
 $("peGuideEdit").onclick = () => {
@@ -875,7 +912,9 @@ $("testDeepseek").onclick = async () => {
     if ($("kDeepseek").value.trim()) await api("/api/keys", { method: "POST", body: JSON.stringify({ deepseek: $("kDeepseek").value }) });
     const r = await api("/api/test-deepseek", { method: "POST" });
     $("deepseekMsg").textContent = (r.ok ? "✓ " : "✗ ") + r.message;
-    if (r.models.length) $("deepseekModels").innerHTML = r.models.map((m) => `<option value="${esc(m)}"></option>`).join("");
+    // Tài khoản có model mới (DeepSeek đổi tên)? Thêm vào ô chọn ở bước 2.
+    const sel = $("modelDeepseek"), have = [...sel.options].map((o) => o.value);
+    for (const m of r.models) if (!have.includes(m)) sel.add(new Option(m, m));
   } catch (e) { $("deepseekMsg").textContent = "✗ " + e.message; }
   btn.disabled = false;
 };
@@ -899,6 +938,57 @@ $("setClaudePath").onclick = async () => {
   try {
     const r = await api("/api/claude-path", { method: "POST", body: JSON.stringify({ path: $("claudePath").value }) });
     updateProviderBadges(r.providers); toast(r.path ? "Đã dùng: " + r.path : "Chưa tìm thấy Claude Code");
+  } catch (e) { toast(e.message); }
+};
+
+// ---- dự án ------------------------------------------------------------------------
+function renderProjects() {
+  const list = state.projects || [];
+  if (!PROJECT && list.length && !state.common_files) PROJECT = list[0].id;  // thư mục chung trống: vào thẳng dự án
+  $("project").innerHTML = list.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("") +
+    `<option value="">(thư mục chung${state.common_files ? ` — ${state.common_files} file` : ""})</option>`;
+  $("project").value = PROJECT;
+  const cur = list.find((p) => p.id === PROJECT);
+  $("projectTitle").textContent = cur ? `📚 Dự án: ${cur.name}` : "📂 Thư mục chung (chưa thuộc dự án nào)";
+  $("projectInfo").innerHTML = cur
+    ? `${esc(cur.description || "")}${cur.description ? " · " : ""}${cur.books} sách · thư mục <code>${esc(cur.id)}</code>. Sổ tay, hướng dẫn dịch, hướng dẫn hiệu đính và cài đặt ở các bước sau là của riêng dự án này.`
+    : (list.length ? "Chọn một dự án ở thanh trên cùng, hoặc tạo dự án mới." :
+      "Nên tạo <b>dự án</b> cho mỗi bộ sách (vd. Discworld Series): mỗi dự án có sổ tay tên riêng, hướng dẫn dịch và cài đặt riêng, không lẫn với bộ khác. Bấm <b>＋ Dự án mới</b> ở trên cùng.");
+  $("moveCommonBtn").style.display = cur && state.common_files ? "" : "none";
+  $("npMoveWrap").style.display = state.common_files ? "" : "none";
+  try { localStorage.setItem("bt-project", PROJECT); } catch (e) {}
+}
+async function switchProject(id) {
+  if (id === PROJECT) return;
+  clearTimeout(saveTimer); formReady = false;  // không ghi cài đặt của dự án cũ sang dự án mới
+  PROJECT = id; bibleData = null; pe.book = "";
+  await refresh(true);
+  if ($("tab-postedit").classList.contains("active")) loadChapters();
+  toast(id ? "Đã chuyển sang dự án: " + $("project").selectedOptions[0].textContent : "Đang dùng thư mục chung");
+}
+$("project").onchange = () => switchProject($("project").value).catch((e) => toast(e.message));
+$("newProjectBtn").onclick = () => {
+  document.querySelector('nav button[data-tab="book"]').click();
+  fillSelect("npGenre", state.genres.map((g) => [g.key, g.name]), "comic");
+  $("newProjectForm").style.display = ""; $("npName").focus();
+  $("npMove").checked = !(state.projects || []).length && !!state.common_files;  // dự án đầu tiên: chuyển luôn file cũ
+};
+$("npCancel").onclick = () => $("newProjectForm").style.display = "none";
+$("npCreate").onclick = async () => {
+  try {
+    const r = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: $("npName").value, description: $("npDesc").value,
+      genre: $("npGenre").value, starter: $("npStarter").checked, move_common: $("npMove").checked }) });
+    $("newProjectForm").style.display = "none"; $("npName").value = ""; $("npDesc").value = "";
+    PROJECT = ""; await switchProject(r.id);
+    if (r.moved.length) toast(`Đã tạo dự án và chuyển ${r.moved.length} file vào.`);
+  } catch (e) { toast(e.message); }
+};
+$("moveCommonBtn").onclick = async () => {
+  if (!confirm("Chuyển mọi sách, sổ tay, hướng dẫn và kết quả đang ở thư mục chung vào dự án này?")) return;
+  try {
+    const r = await api("/api/projects/move-common" + pq(), { method: "POST" });
+    const id = PROJECT; PROJECT = ""; formReady = false; await switchProject(id);
+    toast(`Đã chuyển ${r.moved.length} file vào dự án.`);
   } catch (e) { toast(e.message); }
 };
 

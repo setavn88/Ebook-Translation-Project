@@ -318,3 +318,47 @@ def test_deepseek_check_without_key(server, monkeypatch):
     monkeypatch.setattr(w, "list_models", lambda name, key=None: ["deepseek-flash", "deepseek-v4-pro"])
     r = call("/api/test-deepseek", "POST")[1]
     assert r["ok"] and r["models"] == ["deepseek-flash", "deepseek-v4-pro"]
+
+
+def test_projects_keep_files_and_settings_apart(server):
+    app, call, _ = server
+    ws = app.workspace
+    # Cách dùng cũ: mọi thứ ở thư mục chung.
+    (ws / "colour.epub").write_bytes(b"x")
+    (ws / "colour.vi.epub").write_bytes(b"y")
+    (ws / "discworld.bible.json").write_text('{"entities": []}', encoding="utf-8")
+    (ws / "discworld").mkdir()
+    (ws / "discworld" / "huong-dan-dich.md").write_text("# HD", encoding="utf-8")
+    (ws / ".bt_cache").mkdir()
+    (ws / ".bt_cache" / "colour.vi.epub.jsonl").write_text("{}", encoding="utf-8")
+    call("/api/settings", "PUT", {"book": "colour.epub", "brief": "discworld/huong-dan-dich.md", "bible": "discworld.bible.json"})
+    state = call("/api/state")[1]
+    assert state["projects"] == [] and state["common_files"] == 4
+
+    status, r = call("/api/projects", "POST", {"name": "Discworld Series", "genre": "comic", "move_common": True})
+    assert status == 200 and r["id"] == "discworld-series"
+    pdir = ws / "discworld-series"
+    assert (pdir / "colour.epub").exists() and (pdir / "huong-dan-dich.md").exists()
+    assert (pdir / ".bt_cache" / "colour.vi.epub.jsonl").exists() and not (ws / "discworld").exists()
+    state = call("/api/state?project=discworld-series")[1]
+    assert state["common_files"] == 0 and state["projects"][0]["name"] == "Discworld Series"
+    assert "discworld-series/colour.epub" in state["files"]["books"]
+    s = state["settings"]
+    assert s["book"] == "discworld-series/colour.epub" and s["brief"] == "discworld-series/huong-dan-dich.md"
+    assert s["bible"] == "discworld.bible.json" and s["genre"] == "comic"
+
+    # Dự án thứ hai: file và cài đặt riêng, sổ tay mặc định riêng.
+    r2 = call("/api/projects", "POST", {"name": "Tam Thể", "starter": False})[1]
+    assert r2["id"] == "tam-the"
+    assert call("/api/upload?name=b1.epub&project=tam-the", "POST", b"z")[1]["path"] == "tam-the/b1.epub"
+    st2 = call("/api/state?project=tam-the")[1]
+    assert st2["files"]["books"] == ["tam-the/b1.epub"] and st2["settings"]["bible"] == "so-tay.bible.json"
+    call("/api/settings?project=tam-the", "PUT", {"genre": "scifi"})
+    assert call("/api/settings?project=discworld-series")[1]["genre"] == "comic"
+    assert call("/api/state")[1]["files"]["books"] == []  # thư mục chung không lẫn file dự án
+    assert call("/api/state?project=nope")[0] == 400
+
+    _, argv, outputs = app.build_job({"action": "translate", "project": "tam-the", "book": "tam-the/b1.epub",
+                                      "bible": "tam-the/so-tay.bible.json"})
+    assert f"--so-tay={ws / 'tam-the' / 'so-tay.bible.json'}" in argv
+    assert call("/api/postedit/guide?project=tam-the", "POST")[1]["path"] == "tam-the/huong-dan-hieu-dinh.md"

@@ -31,6 +31,19 @@ Trình duyệt tự mở trang `http://127.0.0.1:8765`. Giao diện chạy trên
 
 Ngoài ra có tab **★ Học phong cách** (học từ sách tham chiếu) và tab **⚙ Kết nối AI** (xem trạng thái, nhập API key tạm thời).
 
+### Dự án: mỗi bộ sách một sổ tay riêng
+
+Mỗi bộ sách hay series nên là một **dự án**, vd. "Discworld Series", "Harry Potter", "Tam Thể". Chọn dự án ở thanh trên cùng, tạo mới bằng **＋ Dự án mới**.
+
+- Dự án là một thư mục trong thư mục làm việc, vd. `BookTranslator/discworld-series/`. Trong đó có sách, sổ tay tên riêng, hướng dẫn dịch, hướng dẫn hiệu đính và mọi kết quả của bộ đó.
+- **Sổ tay dùng chung cho mọi cuốn trong dự án**, mặc định là `so-tay.bible.json`. Cuốn 2 dùng đúng tên đã chốt ở cuốn 1; dự án khác có sổ tay riêng, không lẫn tên.
+- Cài đặt (thể loại, phong cách, AI dịch/biên tập, mức hiệu đính…) cũng lưu riêng theo dự án trong `project.json`. Đổi dự án là đổi luôn cả bộ cài đặt.
+- **Đang có file để chung từ trước?**
+  - Khi tạo dự án đầu tiên, tick "chuyển sách, sổ tay, hướng dẫn đang ở thư mục chung vào dự án này". Hoặc bấm nút **⇢ Chuyển file ở thư mục chung vào dự án này** ở tab 1.
+  - Tiến độ dịch đã lưu (`.bt_cache`) và cài đặt đi theo sách, nên không phải dịch lại.
+  - Sổ tay đang dùng (vd. `discworld.bible.json`) trở thành sổ tay của dự án.
+- Dùng dòng lệnh thì chỉ cần trỏ vào file trong thư mục dự án, vd. `--so-tay discworld-series/so-tay.bible.json`.
+
 ## Dùng gói Claude Pro/Max qua Claude Code (không tốn tiền API)
 
 1. Cài Claude Code: https://claude.com/claude-code
