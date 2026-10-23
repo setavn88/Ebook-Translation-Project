@@ -189,3 +189,16 @@ def test_separate_editor_chain():
     assert t.translate_chunk("hello") == "HELLO"
     assert len(translator_ai.calls) == 1 and "<draft>" not in translator_ai.calls[0]["user"]
     assert len(editor_ai.calls) == 1 and "<draft>" in editor_ai.calls[0]["user"]
+
+
+def test_parse_updates_salvages_broken_json():
+    from booktranslator.translator import parse_updates
+
+    ok = '{"entities": [{"source": "A", "target": "Á"},], "addressing": [],}'
+    assert parse_updates(ok)["entities"] == [{"source": "A", "target": "Á"}]
+    broken = ('{"entities": [{"source": "Rincewind", "target": "Rincewind", "type": "character"}, '
+              '{"source": "Hrun", "target": "Hrun", "note": "gã "man rợ""}], '
+              '"addressing": [{"speaker": "Rincewind", "listener": "Twoflower", "self_term": "tôi", "other_term": "anh"}]}')
+    data = parse_updates(broken)
+    assert [e["source"] for e in data["entities"]] == ["Rincewind"] and data["addressing"][0]["listener"] == "Twoflower"
+    assert parse_updates("không có gì") is None

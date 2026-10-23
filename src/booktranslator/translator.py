@@ -206,6 +206,32 @@ def parse_json(text: str):
         return json.loads(text[start : end + 1])
 
 
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+_FLAT_OBJECT_RE = re.compile(r"\{[^{}]*\}")
+
+
+def parse_updates(text: str) -> dict | None:
+    """Đọc khối <bible_updates>. AI (nhất là DeepSeek/Codex) đôi khi viết JSON hơi lỗi: thừa dấu phẩy, bọc ```json,
+    hay một mục có dấu ngoặc kép chưa thoát. Khi đó cứu từng mục còn đọc được thay vì bỏ cả khối."""
+    for candidate in (text, _TRAILING_COMMA_RE.sub(r"\1", text)):
+        try:
+            data = parse_json(candidate)
+            return data if isinstance(data, dict) else None
+        except ValueError:
+            continue
+    entities, addressing = [], []
+    for m in _FLAT_OBJECT_RE.finditer(text):
+        try:
+            item = json.loads(_TRAILING_COMMA_RE.sub(r"\1", m.group(0)))
+        except ValueError:
+            continue
+        if isinstance(item, dict) and "speaker" in item:
+            addressing.append(item)
+        elif isinstance(item, dict) and "source" in item:
+            entities.append(item)
+    return {"entities": entities, "addressing": addressing} if entities or addressing else None
+
+
 def _str(value) -> str:
     return value if isinstance(value, str) else ""
 
@@ -390,12 +416,10 @@ class Translator:
         match = _UPDATES_RE.search(reply)
         if not match:
             return
-        try:
-            updates = parse_json(match.group(1))
-        except ValueError:
-            log.warning("Bỏ qua bible_updates không phải JSON hợp lệ")
-            return
-        if not isinstance(updates, dict):
+        updates = parse_updates(match.group(1))
+        if updates is None:
+            # Chỉ mất các tên MỚI mà AI định ghi thêm vào sổ tay ở đoạn này; bản dịch vẫn giữ nguyên.
+            log.warning("Bỏ qua bible_updates không đọc được (tên mới của đoạn này chưa được ghi vào sổ tay; bản dịch không ảnh hưởng)")
             return
         changed = False
         for e in updates.get("entities", []):

@@ -230,19 +230,25 @@ def test_cli_presets_and_effort(tmp_path, fake_api):
     assert fake_api.calls[-1]["effort"] == "low"
 
 
-def test_cli_chains_use_preset_models(monkeypatch):
+def test_cli_chains_translators_and_editor_models(monkeypatch):
     seen = []
     monkeypatch.setattr(cli, "build_chain", lambda spec, fb, override, wait=0: seen.append((spec, override)) or fake_chain()[0])
-    args = cli.build_parser().parse_args(["dich", "x.epub", "--muc", "tiet-kiem", "--providers", "claude,deepseek"])
-    cli._chains(args)
-    (t_spec, t_over), (a_spec, a_over) = seen
-    assert t_over["claude"] == t_over["claude-code"] == "claude-sonnet-5-5"
-    assert a_over["claude"] == a_over["claude-code"] == "claude-haiku-5-5"
-    assert t_spec == [("claude", None), ("deepseek", None)]
+    # Dịch: chỉ Codex / DeepSeek; --model áp cho người dịch đầu tiên.
+    args = cli.build_parser().parse_args(["dich", "x.epub", "--providers", "deepseek,codex", "--model", "deepseek-flash"])
+    cli._chains(args, translators_only=True)
+    assert seen[0][0] == [("deepseek", "deepseek-flash"), ("codex", None)] and seen[1][0] == [("deepseek", None), ("codex", None)]
+    with pytest.raises(ValueError, match="Codex và DeepSeek"):
+        cli._chains(cli.build_parser().parse_args(["dich", "x.epub", "--providers", "claude,deepseek"]), translators_only=True)
+    # Biên tập theo --muc: Claude Code dùng model của mức đã chọn.
     seen.clear()
-    args = cli.build_parser().parse_args(["dich", "x.epub", "--providers", "claude", "--model", "claude-fable-5-1"])
-    cli._chains(args)
-    assert seen[0][0] == [("claude", "claude-fable-5-1")] and seen[1][0] == [("claude", None)]
+    args = cli.build_parser().parse_args(["dich", "x.epub", "--muc", "tiet-kiem"])
+    cli._chains(args, need_editor=True, translators_only=True)
+    editor_spec, editor_over = seen[-1]
+    assert editor_spec == cli.DEFAULT_EDITORS and editor_over["claude-code"] == "claude-sonnet-5-5"
+    # Hiệu đính dùng chuỗi biên tập làm chuỗi chính → được dùng Claude Code.
+    seen.clear()
+    cli._chains(cli.build_parser().parse_args(["hieu-dinh", "x.vi.epub"]))
+    assert seen[0][0][0] == ("claude-code", None)
 
 
 def test_cli_missing_file(tmp_path):

@@ -300,15 +300,21 @@ DEFAULT_TRANSLATORS = "codex,deepseek"
 DEFAULT_EDITORS = "claude-code,codex,deepseek"  # Claude hết hạn mức → Codex hiệu đính → cuối cùng mới DeepSeek
 
 
-def _chains(args, need_editor: bool = False):
-    """(chuỗi dịch, chuỗi phân tích, chuỗi biên tập); Claude chỉ thuộc chuỗi biên tập."""
+TRANSLATORS = {"codex", "deepseek"}  # người dịch; Claude chỉ làm biên tập / hiệu đính
+
+
+def _chains(args, need_editor: bool = False, translators_only: bool = False):
+    """(chuỗi chính, chuỗi phân tích, chuỗi biên tập).
+
+    `translators_only`: chuỗi chính là người DỊCH (dich-thu / phan-tich / dich) nên chỉ nhận Codex và DeepSeek.
+    Các lệnh hiệu đính / học từ bản sửa dùng chuỗi chính làm người biên tập nên được dùng Claude.
+    """
     preset = PRESETS[getattr(args, "muc", "can-bang")]
     spec = parse_spec(args.providers)
-    unsupported = [name for name, _ in spec if name not in {"codex", "deepseek"}]
-    if unsupported:
+    if translators_only and any(name not in TRANSLATORS for name, _ in spec):
         raise ValueError("Chuỗi dịch chỉ hỗ trợ Codex và DeepSeek; hãy đặt Claude trong --bien-tap-bang.")
     if not spec:
-        raise ValueError("Cần chọn ít nhất một người dịch: codex và/hoặc deepseek.")
+        raise ValueError("Cần chọn ít nhất một nhà cung cấp AI (vd. codex,deepseek).")
     translate_spec = list(spec)
     if args.model:
         translate_spec[0] = (spec[0][0], args.model)  # --model chỉ áp cho bước dịch
@@ -495,7 +501,9 @@ def _run(args, progress) -> int:
         brief=args.brief.read_text(encoding="utf-8") if args.brief else "",
         polish=preset["polish"] if polish is None else polish,
     )
-    llm, analysis_llm, editor_llm = _chains(args, need_editor=args.cmd in ("preview", "translate") and config.polish)
+    llm, analysis_llm, editor_llm = _chains(
+        args, need_editor=args.cmd in ("preview", "translate") and config.polish, translators_only=True
+    )
     output, bible_path, cache_path = _paths(args)
     doc = load_document(args.input, args.chunk_chars)
     bible = StoryBible.load(bible_path)
@@ -584,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except ProviderUnavailable as e:
         _err(f"Không còn nhà cung cấp API nào dùng được: {e}")
-            _err("Tiến độ đã được lưu. Kiểm tra hạn mức Codex hoặc API key DeepSeek rồi chạy lại với --providers codex,deepseek.")
+        _err("Tiến độ đã được lưu. Kiểm tra hạn mức Codex hoặc API key DeepSeek rồi chạy lại với --providers codex,deepseek.")
         return 1
     except TranslationError as e:
         _err(f"Lỗi dịch: {e}")

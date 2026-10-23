@@ -560,7 +560,7 @@ class App:
             out = default_output(Path(book))
             return action, argv, [self.rel(out), self.rel(edits_path(out))]
 
-        argv += self._api_args(opts)
+        argv += self._api_args(opts, translators_only=True)
 
         outputs: list[str] = []
         if action == "analyze":
@@ -590,13 +590,14 @@ class App:
             outputs.append(self.rel(bible))
         return action, argv, outputs
 
-    def _api_args(self, opts: dict) -> list[str]:
+    def _api_args(self, opts: dict, translators_only: bool = False) -> list[str]:
+        """`translators_only`: "providers" là người DỊCH → chỉ nhận Codex/DeepSeek. Hiệu đính, học từ bản sửa,
+        học phong cách truyền chuỗi biên tập vào đây nên được dùng Claude."""
         args = []
         if (preset := opts.get("muc")) and preset in PRESETS:
             args.append(f"--muc={preset}")
-        requested = opts.get("providers") or []
-        unsupported = [name for name in requested if name not in TRANSLATION_PROVIDERS]
-        if unsupported:
+        requested = [name for name in opts.get("providers") or [] if name in VALID_PROVIDERS]
+        if translators_only and any(name not in TRANSLATION_PROVIDERS for name in requested):
             raise ValueError("Người dịch chỉ gồm Codex và DeepSeek; Claude chỉ dùng trong chuỗi biên tập.")
         if providers := provider_spec(requested, opts.get("models")):
             args.append(f"--providers={providers}")
