@@ -36,6 +36,7 @@ EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 TEXT_SUFFIXES = (".md", ".json", ".txt")
 MAX_TEXT_BYTES = 5 * 1024 * 1024
 VALID_PROVIDERS = ("claude-code", "codex", "claude", "deepseek", "openai")
+TRANSLATION_PROVIDERS = ("codex", "deepseek")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9._/\-]{1,80}$")
 
 
@@ -593,7 +594,11 @@ class App:
         args = []
         if (preset := opts.get("muc")) and preset in PRESETS:
             args.append(f"--muc={preset}")
-        if providers := provider_spec(opts.get("providers") or [], opts.get("models")):
+        requested = opts.get("providers") or []
+        unsupported = [name for name in requested if name not in TRANSLATION_PROVIDERS]
+        if unsupported:
+            raise ValueError("Người dịch chỉ gồm Codex và DeepSeek; Claude chỉ dùng trong chuỗi biên tập.")
+        if providers := provider_spec(requested, opts.get("models")):
             args.append(f"--providers={providers}")
         if model := (opts.get("model") or "").strip():
             args.append(f"--model={model}")

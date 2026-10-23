@@ -54,11 +54,11 @@ from .translator import TranslationError, Translator, TranslatorConfig
 
 _EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 
-# Mức chất lượng / chi phí. Chỉ áp dụng cho Claude khi người dùng không tự chọn model.
+# Mức chất lượng / chi phí: chọn model Claude cho biên tập, giới hạn effort và bật/tắt nhuận sắc.
 PRESETS = {
-    "tiet-kiem": {"model": "claude-sonnet-5-5", "analysis_model": "claude-haiku-5-5", "polish": False, "max_effort": "medium"},
-    "can-bang": {"model": "claude-opus-5-5", "analysis_model": "claude-sonnet-5-5", "polish": True, "max_effort": None},
-    "cao-cap": {"model": "claude-opus-5-5", "analysis_model": "claude-opus-5-5", "polish": True, "min_effort": "high"},
+    "tiet-kiem": {"model": "claude-sonnet-5-5", "polish": False, "max_effort": "medium"},
+    "can-bang": {"model": "claude-opus-5-5", "polish": True, "max_effort": None},
+    "cao-cap": {"model": "claude-opus-5-5", "polish": True, "min_effort": "high"},
 }
 
 
@@ -75,9 +75,8 @@ def _add_api_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--providers", default=DEFAULT_TRANSLATORS,
         help="Nhà cung cấp theo thứ tự ưu tiên, dạng tên[:model], cách nhau dấu phẩy. "
-             "Mặc định: codex,deepseek (Codex dịch, DeepSeek dự phòng). Vd: claude-code (gói Claude Pro/Max), "
-             "codex (gói ChatGPT Plus/Pro), claude-code,codex,deepseek, "
-             "deepseek:deepseek-flash,openai:gpt-5. Hết quota/lỗi thì tự chuyển sang cái kế tiếp.",
+             "Chỉ dùng codex (gói ChatGPT) và deepseek. Mặc định: codex,deepseek; hết quota/lỗi thì tự chuyển sang cái kế tiếp. "
+             "Ví dụ: codex,deepseek:deepseek-flash hoặc deepseek,codex.",
     )
     p.add_argument("--model", help="Model cho nhà cung cấp đầu tiên (ghi đè mức --muc)")
     p.add_argument("--effort", choices=_EFFORTS, help="Mức suy nghĩ của mô hình; mặc định theo thể loại và --muc")
@@ -302,17 +301,20 @@ DEFAULT_EDITORS = "claude-code,codex,deepseek"  # Claude hết hạn mức → C
 
 
 def _chains(args, need_editor: bool = False):
-    """(chuỗi dịch, chuỗi phân tích, chuỗi biên tập). Mức --muc chỉ chọn model Claude khi người dùng không tự chọn."""
+    """(chuỗi dịch, chuỗi phân tích, chuỗi biên tập); Claude chỉ thuộc chuỗi biên tập."""
     preset = PRESETS[getattr(args, "muc", "can-bang")]
     spec = parse_spec(args.providers)
+    unsupported = [name for name, _ in spec if name not in {"codex", "deepseek"}]
+    if unsupported:
+        raise ValueError("Chuỗi dịch chỉ hỗ trợ Codex và DeepSeek; hãy đặt Claude trong --bien-tap-bang.")
+    if not spec:
+        raise ValueError("Cần chọn ít nhất một người dịch: codex và/hoặc deepseek.")
     translate_spec = list(spec)
     if args.model:
         translate_spec[0] = (spec[0][0], args.model)  # --model chỉ áp cho bước dịch
     wait = getattr(args, "wait_hours", 0)
     llm = build_chain(translate_spec, not args.no_fallback, {"claude": preset["model"], "claude-code": preset["model"]}, wait)
-    analysis = build_chain(
-        spec, not args.no_fallback, {"claude": preset["analysis_model"], "claude-code": preset["analysis_model"]}, wait
-    )
+    analysis = build_chain(spec, not args.no_fallback, {}, wait)
     if analysis.id == llm.id:
         analysis = llm
     editor = llm
@@ -582,7 +584,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except ProviderUnavailable as e:
         _err(f"Không còn nhà cung cấp API nào dùng được: {e}")
-        _err("Tiến độ đã được lưu. Nạp thêm credit, đặt API key khác, hoặc thêm --providers claude,deepseek,openai rồi chạy lại.")
+            _err("Tiến độ đã được lưu. Kiểm tra hạn mức Codex hoặc API key DeepSeek rồi chạy lại với --providers codex,deepseek.")
         return 1
     except TranslationError as e:
         _err(f"Lỗi dịch: {e}")

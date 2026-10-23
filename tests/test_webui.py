@@ -68,13 +68,13 @@ def test_build_job_argv(server):
     (app.workspace / "lylan-hp.json").write_text("{}")
     action, argv, outputs = app.build_job({
         "action": "preview", "book": "book.epub", "genre": "comic", "style": "file:lylan-hp.json", "brief": "dw.md",
-        "bible": "discworld", "muc": "tiet-kiem", "providers": ["claude-code", "deepseek", "rm -rf"], "polish": "on",
+        "bible": "discworld", "muc": "tiet-kiem", "providers": ["codex", "deepseek", "rm -rf"], "polish": "on",
         "note": "--fresh không phải tùy chọn", "chunks": "3",
     })
     ws = app.workspace
     assert argv[:3] == ["dich-thu", str(ws / "book.epub"), "--the-loai=comic"]
     assert f"--phong-cach-file={ws / 'lylan-hp.json'}" in argv and f"--huong-dan={ws / 'dw.md'}" in argv
-    assert "--providers=claude-code,deepseek" in argv and "--muc=tiet-kiem" in argv and "--polish" in argv
+    assert "--providers=codex,deepseek" in argv and "--muc=tiet-kiem" in argv and "--polish" in argv
     assert "--yeu-cau=--fresh không phải tùy chọn" in argv and "--fresh" not in argv
     assert f"--so-tay={ws / 'discworld.bible.json'}" in argv and "--chunks=3" in argv
     assert outputs == ["book.vi.epub.preview.md", "discworld.bible.json"]

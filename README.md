@@ -9,7 +9,7 @@ Bốn mục tiêu và cách công cụ đáp ứng:
 | **1. Nhất quán** thế giới, tên nhân vật, địa danh, sự kiện | **Sổ tay truyện** (file JSON): đọc trước cả sách để lập danh sách tên riêng, cách xưng hô, tóm tắt và sự kiện từng chương. Mỗi tên chỉ có một bản dịch. Có bước kiểm tra sau khi dịch. Dùng chung một sổ tay cho cả bộ truyện. |
 | **2. Dịch có chiều sâu**, không word-by-word | Dịch theo **thể loại** (Discworld: `comic`) với danh sách lỗi "văn dịch" cần tránh, cộng **bước biên tập**: một lượt thứ hai đối chiếu bản gốc và nhuận sắc bản nháp. |
 | **3. Theo phong cách một dịch giả** (vd. Lý Lan dịch Harry Potter) | **Hồ sơ phong cách dịch**: có sẵn mô tả kiểu Lý Lan. Tốt nhất là **tự học từ sách tham chiếu** bạn đưa vào (`hoc-phong-cach`). |
-| **4. Ít token nhất; đổi được API** khi Claude hết quota | Prompt cố định để trúng cache, chỉ gửi phần sổ tay liên quan, lưu lại mọi kết quả, có 3 **mức chi phí**, bước phân tích dùng model rẻ hơn. Hỗ trợ **Claude, DeepSeek, ChatGPT**; lỗi hoặc hết quota thì tự chuyển sang API kế tiếp. |
+| **4. Ít token nhất; đổi được model khi hết hạn mức** | Prompt cố định để trúng cache, chỉ gửi phần sổ tay liên quan và lưu lại mọi kết quả. **Codex và DeepSeek dịch** theo thứ tự ưu tiên; **Claude Code, Codex, DeepSeek** đảm nhiệm hiệu đính theo chuỗi dự phòng. |
 
 ## Cách dễ nhất: giao diện trên trình duyệt
 
@@ -22,7 +22,7 @@ booktranslator giao-dien
 Trình duyệt tự mở trang `http://127.0.0.1:8765`. Giao diện chạy trên máy bạn; sách và kết quả nằm trong thư mục `BookTranslator` ở thư mục người dùng (đổi bằng `--thu-muc`). Các bước:
 
 1. **Sách:** kéo thả file EPUB vào. Bấm "Cài bộ khởi đầu Discworld" để có sẵn file hướng dẫn dịch và bảng tên riêng.
-2. **Cài đặt dịch:** chọn thể loại, phong cách, mức chi phí, và AI nào dùng (**Claude Code** để dùng gói Pro/Max của bạn, không tốn tiền API).
+2. **Cài đặt dịch:** chọn thể loại, phong cách, chuỗi dịch **Codex → DeepSeek** và chuỗi hiệu đính **Claude Code → Codex → DeepSeek**.
 3. **Hướng dẫn dịch:** sửa "prompt" của cuốn sách ngay trên trang.
 4. **Sổ tay tên riêng:** bảng tên và cách xưng hô, sửa trực tiếp.
 5. **Dịch & kết quả:** *Dịch thử*, rồi đọc bản gốc / bản nháp / bản biên tập đặt cạnh nhau. Khi đã ưng thì bấm *Dịch cả cuốn*. Có nút *Dừng*; lần sau chạy tiếp từ chỗ dừng.
@@ -44,11 +44,11 @@ Mỗi bộ sách hay series nên là một **dự án**, vd. "Discworld Series",
   - Sổ tay đang dùng (vd. `discworld.bible.json`) trở thành sổ tay của dự án.
 - Dùng dòng lệnh thì chỉ cần trỏ vào file trong thư mục dự án, vd. `--so-tay discworld-series/so-tay.bible.json`.
 
-## Dùng gói Claude Pro/Max qua Claude Code (không tốn tiền API)
+## Dùng Claude Code làm biên tập chủ biên (không tốn tiền API)
 
 1. Cài Claude Code: https://claude.com/claude-code
 2. Mở Terminal, gõ `claude` và đăng nhập bằng tài khoản Claude của bạn. Chỉ cần làm một lần.
-3. Claude Code là biên tập chủ biên mặc định trong giao diện. Nếu muốn dùng cho dịch thay Codex, đặt provider đó trong danh sách dịch.
+3. Claude Code là biên tập chủ biên mặc định trong giao diện. Claude không thuộc chuỗi dịch; bản dịch do Codex và DeepSeek đảm nhiệm.
 
 Lưu ý:
 - **Hạn mức:** Claude Code dùng hạn mức gói Claude cho bước biên tập, không phải tiền API. Nếu Claude Code hết hạn mức, bước biên tập lần lượt chuyển sang Codex rồi DeepSeek (nếu cả hai đã được cấu hình).
@@ -96,13 +96,15 @@ cd Ebook-Translation-Project
 pip install -e '.[openai]'
 ```
 
-**2. Đặt API key** (lấy tại https://platform.claude.com):
+**2. Đăng nhập Codex và đặt API key DeepSeek dự phòng.** Claude Code là tùy chọn cho bước biên tập.
 
 ```bash
-# macOS / Linux
-export ANTHROPIC_API_KEY="sk-ant-..."
-# Windows PowerShell
-$env:ANTHROPIC_API_KEY="sk-ant-..."
+# Đăng nhập Codex CLI một lần bằng tài khoản ChatGPT
+codex login
+# DeepSeek dự phòng (macOS / Linux)
+export DEEPSEEK_API_KEY="sk-..."
+# DeepSeek dự phòng (Windows PowerShell)
+$env:DEEPSEEK_API_KEY="sk-..."
 ```
 
 **3. Dịch thử 2 đoạn** (vài nghìn chữ) để xem giọng văn và chi phí:
@@ -139,7 +141,7 @@ booktranslator dich "The Colour of Magic.epub" -g comic -p lylan \
 
 Các cuốn Discworld sau dùng lại đúng `discworld.bible.json` và file hướng dẫn, để tên và giọng nhân vật thống nhất cả bộ. Khi đã học được phong cách từ sách Lý Lan (`hoc-phong-cach`, xem mục 3), thay `-p lylan` bằng `--phong-cach-file lylan-hp.json`.
 
-Muốn rẻ hơn khi thử: thêm `--muc tiet-kiem` (Sonnet, không biên tập). Muốn bản tốt nhất: `--muc cao-cap` hoặc `--model claude-fable-5-1`.
+Muốn tiết kiệm khi thử: thêm `--muc tiet-kiem` (tắt biên tập tự động). Muốn bản dịch suy nghĩ kỹ hơn: dùng `--effort high`; chọn Pro hoặc Flash cho DeepSeek trong giao diện.
 
 ## Cài đặt
 
@@ -148,11 +150,11 @@ Yêu cầu Python ≥ 3.10.
 ```bash
 git clone https://github.com/setavn88/Ebook-Translation-Project.git
 cd Ebook-Translation-Project
-pip install -e '.[openai]'     # bỏ [openai] nếu chỉ dùng Claude
+pip install -e '.[openai]'
 
-export ANTHROPIC_API_KEY="sk-ant-..."   # Claude: https://platform.claude.com
-export DEEPSEEK_API_KEY="sk-..."        # tùy chọn: https://platform.deepseek.com
-export OPENAI_API_KEY="sk-..."          # tùy chọn: https://platform.openai.com
+codex login                                 # đăng nhập ChatGPT qua Codex CLI
+export DEEPSEEK_API_KEY="sk-..."           # DeepSeek dự phòng
+# ANTHROPIC_API_KEY chỉ cần nếu chọn Claude API cho bước biên tập.
 ```
 
 ## Quy trình cho Discworld
@@ -297,22 +299,22 @@ booktranslator hoc-tu-ban-sua --ban-tho raw.epub --ban-sua codex.epub \
 
 ### Mức chất lượng / chi phí (`--muc`)
 
-| `--muc` | Model dịch (Claude) | Model phân tích | Biên tập | Effort |
-|---|---|---|---|---|
-| `tiet-kiem` | `claude-sonnet-5-5` | `claude-haiku-5-5` | không | tối đa `medium` |
-| `can-bang` *(mặc định)* | `claude-opus-5-5` | `claude-sonnet-5-5` | có | theo thể loại |
-| `cao-cap` | `claude-opus-5-5` | `claude-opus-5-5` | có | tối thiểu `high` |
+| `--muc` | Model Claude Code khi biên tập | Biên tập | Effort |
+|---|---|---|---|
+| `tiet-kiem` | `claude-sonnet-5-5` | không | tối đa `medium` |
+| `can-bang` *(mặc định)* | `claude-opus-5-5` | có | theo thể loại |
+| `cao-cap` | `claude-opus-5-5` | có | tối thiểu `high` |
 
-Cột model chỉ áp dụng cho Claude Code / Claude API. Codex dùng model mặc định trong cấu hình Codex của bạn, DeepSeek dùng `deepseek-v4-pro` (bản Pro; muốn rẻ hơn thì `deepseek-flash`); muốn đổi thì ghi `tên:model` trong `--providers`. Riêng "Biên tập" (bật/tắt) và "Effort" áp dụng cho mọi AI.
+Cột model chỉ áp dụng cho Claude Code khi nó hiệu đính. Người dịch dùng Codex (model trong cấu hình Codex) và DeepSeek (`deepseek-v4-pro` hoặc `deepseek-flash`); đổi model DeepSeek bằng `tên:model` trong `--providers`. "Biên tập" và "Effort" áp dụng theo cấu hình chung.
 
-- `--model` ghi đè model dịch, ví dụ `--model claude-fable-5-1`: model mạnh nhất, giá khoảng 2,5 lần Opus. Nên so hai bản bằng `dich-thu` trước.
+- `--model` ghi đè model cho người dịch đầu tiên trong chuỗi Codex/DeepSeek.
 - `--effort`, `--polish`, `--no-polish` ghi đè từng phần của mức đã chọn.
 
 ### Những cách tiết kiệm có sẵn
 
 - **Prompt cache.** Prompt hệ thống (quy tắc thể loại, phong cách, đoạn mẫu) giữ nguyên cho cả cuốn, nên các request sau chỉ tính khoảng 10% giá cho phần đó.
 - **Chỉ gửi phần sổ tay liên quan** tới từng đoạn, thay vì cả sổ tay (vốn lên tới hàng trăm mục với cả bộ Discworld).
-- **Phân tích** dùng model rẻ hơn với effort thấp, và không gửi kèm đoạn mẫu.
+- **Phân tích** dùng cùng chuỗi Codex/DeepSeek nhưng prompt gọn và effort thấp, không gửi kèm đoạn mẫu.
 - **Lưu mọi kết quả.** Chạy lại, `dich-thu` rồi `dich`, hay bị ngắt giữa chừng đều không tốn tiền lại cho phần đã làm.
 - **`dich-thu` trước.** Lệnh này in số token đã dùng cho vài đoạn; nhân lên theo số đoạn của sách để ước lượng chi phí cả cuốn trước khi chạy.
 
@@ -322,21 +324,22 @@ Cột model chỉ áp dụng cho Claude Code / Claude API. Codex dùng model m�
 # Cấu hình mặc định: Codex dịch trước, DeepSeek dự phòng
 booktranslator dich book.epub -g comic
 
-# Tự chọn chuỗi khác: Claude API trước, rồi DeepSeek, rồi ChatGPT API
-booktranslator dich book.epub -g comic --providers claude,deepseek,openai
+# Đảo thứ tự ưu tiên nếu muốn DeepSeek dịch trước
+booktranslator dich book.epub -g comic --providers deepseek,codex
 
-# Chỉ dùng DeepSeek (rẻ nhất), hoặc chỉ định model
+# Chỉ dùng DeepSeek hoặc chọn model Flash
 booktranslator dich book.epub -g comic --providers deepseek
-booktranslator dich book.epub -g comic --providers deepseek:deepseek-flash,openai:gpt-5
+booktranslator dich book.epub -g comic --providers codex,deepseek:deepseek-flash
 ```
+
+Chuỗi `--providers` chỉ nhận Codex và DeepSeek. Claude Code, Claude API và ChatGPT API không được chọn làm dịch giả; Claude chỉ có thể được đặt trong `--bien-tap-bang`.
 
 | Tên | Biến môi trường | Model mặc định |
 |---|---|---|
-| `claude-code` | không cần (đăng nhập Claude Code) | theo `--muc` |
 | `codex` | không cần (`codex login` bằng tài khoản ChatGPT) | model mặc định của Codex |
-| `claude` | `ANTHROPIC_API_KEY` | theo `--muc` |
 | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` (hoặc `deepseek-flash`) |
-| `openai` (hay `chatgpt`) | `OPENAI_API_KEY` | `gpt-5` |
+
+Chuỗi biên tập mặc định là `claude-code,codex,deepseek`; có thể dùng `--bien-tap-bang` để đổi thứ tự hoặc chọn nhà cung cấp khác.
 
 - Nhà cung cấp chưa có key thì bị bỏ qua.
 - **Hết quota / rate limit / mất mạng**: chuyển hẳn sang nhà cung cấp kế tiếp.

@@ -150,9 +150,9 @@ a { color: var(--accent); }
     <div><label for="style">Phong cách dịch giả</label><select id="style"></select>
       <p class="hint">Phong cách tự học (bước ★) hiện ở đây dưới dạng file .json.</p></div>
     <div><label for="muc">Mức chất lượng / chi phí</label><select id="muc">
-      <option value="tiet-kiem">Tiết kiệm — Sonnet, không biên tập</option>
-      <option value="can-bang" selected>Cân bằng — Opus + biên tập (khuyên dùng)</option>
-      <option value="cao-cap">Cao cấp — Opus, suy nghĩ kỹ nhất</option></select></div>
+      <option value="tiet-kiem">Tiết kiệm — không biên tập tự động</option>
+      <option value="can-bang" selected>Cân bằng — có biên tập (khuyên dùng)</option>
+      <option value="cao-cap">Cao cấp — mức suy nghĩ tối thiểu cao</option></select></div>
     <div><label for="polish">Bước biên tập (nhuận sắc)</label><select id="polish">
       <option value="auto">Theo mức chất lượng</option><option value="on">Luôn bật</option><option value="off">Tắt (rẻ hơn ~½)</option></select></div>
   </div>
@@ -163,7 +163,7 @@ a { color: var(--accent); }
     <div class="chips" id="editors"></div>
     <p class="hint"><b>Codex</b> dùng gói ChatGPT để dịch; khi hết hạn mức hoặc gặp lỗi, phần dịch chuyển sang <b>DeepSeek</b>. <b>Claude Code</b> dùng gói Claude để hiệu đính bản dịch; nếu Claude Code hết hạn mức thì <b>Codex</b> hiệu đính, chỉ khi cả hai đều hết mới dùng DeepSeek. Hai mục dùng gói đăng nhập không tính tiền API; DeepSeek cần API key (bước ⚙).</p>
     <div class="grid" style="margin-top:8px">
-      <div><label for="model">Model cho AI dịch đầu tiên (để trống = theo mức chất lượng)</label><input type="text" id="model" placeholder="vd. claude-fable-5-1"></div>
+      <div><label for="model">Model ghi đè cho người dịch đầu tiên (tùy chọn)</label><input type="text" id="model" placeholder="để trống = theo cài đặt Codex/DeepSeek"></div>
       <div><label for="modelDeepseek">Model DeepSeek</label><select id="modelDeepseek">
         <option value="deepseek-v4-pro">Pro — chất lượng cao hơn</option>
         <option value="deepseek-flash">Flash — nhanh, tiết kiệm hơn</option>
@@ -371,6 +371,7 @@ a { color: var(--accent); }
 const TOKEN = "__BT_TOKEN__";
 const $ = (id) => document.getElementById(id);
 const PROVIDERS = [["claude-code", "Claude Code (gói Claude)"], ["codex", "Codex (gói ChatGPT)"], ["claude", "Claude API"], ["deepseek", "DeepSeek API"], ["openai", "ChatGPT API"]];
+const TRANSLATORS = [["codex", "Codex (gói ChatGPT)"], ["deepseek", "DeepSeek API"]];
 const ENTITY_TYPES = ["character", "place", "organization", "title", "creature", "artifact", "magic", "term"];
 let state = null, bibleData = null, currentJob = null, logNext = 0;
 let PROJECT = "";  // thư mục dự án đang chọn ("" = thư mục chung)
@@ -465,17 +466,17 @@ async function refresh(first = false) {
     if (saved.wait !== undefined) $("wait").checked = saved.wait;
     $("bible").value = saved.bible || (PROJECT ? "so-tay.bible.json" : "discworld.bible.json");
     const chosen = saved.providers || ["codex", "deepseek"];
-    const chips = (picked) => PROVIDERS.map(([k, label]) =>
-      `<label><input type="checkbox" value="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
+    const chips = (picked, available) => available.map(([k, label]) =>
+      `<label><input type="checkbox" value="${k}" data-provider="${k}" ${picked.includes(k) ? "checked" : ""}> ${esc(label)}
        <span class="badge ${state.providers[k] ? "ok" : "no"}">${state.providers[k] ? "sẵn sàng" : "chưa kết nối"}</span></label>`).join("");
-    $("providers").innerHTML = chips(chosen);
+    $("providers").innerHTML = chips(chosen.filter((p) => TRANSLATORS.some(([k]) => k === p)), TRANSLATORS);
     const chosenEditors = saved.editors?.length ? [...saved.editors] : ["claude-code", "codex", "deepseek"];
     // Migrate the older Claude -> DeepSeek editor setting so Codex is tried between them.
     if (!saved.editorRoutingVersion && chosenEditors.includes("claude-code") && chosenEditors.includes("deepseek") && !chosenEditors.includes("codex")) {
       chosenEditors.push("codex");
       editorFallbackMigrated = true;
     }
-    $("editors").innerHTML = chips(chosenEditors);
+    $("editors").innerHTML = chips(chosenEditors, PROVIDERS);
   }
   $("starterCard").style.display = state.starter_available ? "" : "none";
   if (first && state.claude_path) $("claudePath").value = state.claude_path;
@@ -893,7 +894,7 @@ $("saveKeys").onclick = async () => {
 
 function updateProviderBadges(p) {
   state.providers = p; renderProviders();
-  document.querySelectorAll("#providers .badge, #editors .badge").forEach((b, i) => { const ok = p[PROVIDERS[i % PROVIDERS.length][0]]; b.className = "badge " + (ok ? "ok" : "no"); b.textContent = ok ? "sẵn sàng" : "chưa kết nối"; });
+  document.querySelectorAll("#providers .badge, #editors .badge").forEach((b) => { const ok = p[b.previousElementSibling?.dataset.provider]; b.className = "badge " + (ok ? "ok" : "no"); b.textContent = ok ? "sẵn sàng" : "chưa kết nối"; });
 }
 $("testClaude").onclick = async () => {
   const btn = $("testClaude"); btn.disabled = true; $("claudeMsg").textContent = "Đang gọi thử Claude Code (tối đa ~1 phút)...";
